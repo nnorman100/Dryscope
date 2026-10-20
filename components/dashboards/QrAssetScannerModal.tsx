@@ -45,6 +45,7 @@ export function QrAssetScannerModal({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [cameraAttempt, setCameraAttempt] = useState<number>(0);
   const [lastScannedResult, setLastScannedResult] = useState<{
     summary: string;
     details: string;
@@ -131,7 +132,12 @@ export function QrAssetScannerModal({
     scanLoopRef.current = requestAnimationFrame(scanFrame);
   }, [handleDecodedString]);
 
-  // Start Camera Stream
+  // Restart the camera feed (re-runs the camera effect below)
+  const startCamera = () => {
+    setCameraError(null);
+    setCameraAttempt((n) => n + 1);
+  };
+
   // Toggle Camera Facing Mode
   const toggleCameraFacing = () => {
     setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
@@ -192,15 +198,13 @@ export function QrAssetScannerModal({
       };
 
       initCamera();
-    } else {
-      stopCamera();
     }
 
     return () => {
       isCancelled = true;
       stopCamera();
     };
-  }, [isOpen, activeTab, facingMode, startScanLoop, stopCamera]);
+  }, [isOpen, activeTab, facingMode, cameraAttempt, startScanLoop, stopCamera]);
 
   // Decode from File Upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
