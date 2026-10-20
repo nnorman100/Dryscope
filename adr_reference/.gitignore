@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+.venv-repair/
+.test-deps/
+test-results/
+playwright-report/
+__pycache__/
+*.pyc
+
+# Firebase
+.firebase/
+.firebaserc.bak
+firebase-debug.log*
+firestore-debug.log
+
+# Environment & Secrets
+.env
+.env.*
+*.key
+*.pem
+service-account*.json
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Workspace-local voice-scope verification
+.voice-test-deps/
+.voice-test-cache/
+
+# Private PDF review intermediates
+tmp/pdfs/
+
+# Release stamp written by scripts/deploy_backend.py during a deploy
+backend/SOURCE_COMMIT
+
+# Local review evidence (screenshots, traces, logs); attach to a GitHub Release instead of committing
+review-artifacts/

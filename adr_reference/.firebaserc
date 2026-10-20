@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "alert-disaster-field-2026"
+  },
+  "targets": {
+    "alert-disaster-field-2026": {
+      "hosting": {
+        "alert-disaster": [
+          "alert-disaster-field-2026"
+        ]
+      }
+    }
+  }
+}

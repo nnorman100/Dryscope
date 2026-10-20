@@ -1,0 +1,911 @@
+import asyncio, base64, json, time
+from contextlib import asynccontextmanager
+from types import SimpleNamespace as NS
+import pytest
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+import backend.main as bm
+from backend.contracts import InspectionData
+from backend.live_support import scope_fingerprint
+from tests.fakes import FakeStore, FakeVertexLive, client_content, realtime
+
+ID = 'ADR-INS-' + 'd' * 32
+CAP = 'e' * 32
+
+
+def test_vertex_configuration_and_standalone_launch():
+    import subprocess, sys
+
+    code = "import main; assert main.OCR_INSTRUCTIONS; assert main.LIVE_VOICE=='Charon'"
+    subprocess.run([sys.executable, '-c', code], cwd='backend', check=True)
+
+
+def wire_audio(text):
+    return {
+        'serverContent': {
+            'modelTurn': {
+                'parts': [
+                    {
+                        'inlineData': {
+                            'mimeType': 'audio/pcm;rate=24000',
+                            'data': base64.b64encode(b'\x01\x02').decode(),
+                        }
+                    }
+                ]
+            },
+            'outputTranscription': {'text': text},
+        }
+    }
+
+
+def test_real_sdk_wire_setup_events_interaction_status_and_resume(monkeypatch, tmp_path):
+    # The real google-genai client talks to a local stand-in for Vertex, so SDK upgrades that change
+    # the setup message, realtime input or server message parsing fail here instead of in the field.
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+
+    async def identity(token, **_):
+        return {'uid': 'owner', 'exp': time.time() + 600}
+
+    monkeypatch.setattr(bm, 'verify_staff', identity)
+    monkeypatch.setattr(bm, 'get_job_store', lambda: store)
+
+    def auth(resume=False):
+        return dict(
+            type='authenticate',
+            token='synthetic',
+            inspection_id=ID,
+            protocol_version=2,
+            capture_id=CAP,
+            resume=resume,
+        )
+
+    with FakeVertexLive(tmp_path) as vertex, TestClient(bm.app) as client:
+        monkeypatch.setattr(bm.genai, 'Client', vertex.client(bm.genai.Client))
+        vertex.replies['setup'] = [
+            {'setupComplete': {}},
+            {'sessionResumptionUpdate': {'newHandle': 'wire-handle', 'resumable': True}},
+            {'usageMetadata': {'totalTokenCount': 17}},
+        ]
+        vertex.replies['client_content'] = [
+            wire_audio("Hi, I'm ready. What's the property address?"),
+            {'serverContent': {'turnComplete': True, 'interactionStatus': 'IDLE'}},
+        ]
+        # A completed turn still marked IN_PROGRESS no longer ends one SDK receive() pass; IDLE does.
+        vertex.replies['audio'] = [
+            {
+                'serverContent': {
+                    'inputTranscription': {'text': 'moisture at the wall', 'finished': True}
+                }
+            },
+            wire_audio('Noted'),
+            {'serverContent': {'turnComplete': True, 'interactionStatus': 'IN_PROGRESS'}},
+            {'serverContent': {'interrupted': True}},
+            {'serverContent': {'interactionStatus': 'IDLE'}},
+            {'serverContent': {'outputTranscription': {'text': 'after idle'}}},
+        ]
+        vertex.replies['video'] = [{'goAway': {'timeLeft': '1s'}}]
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth())
+            assert socket.receive_json()['recovery'] == 'new'
+            assert socket.receive_json() == {'type': 'usage', 'total_tokens': 17}
+            # The model speaks first on a new walkthrough; only its own reply reaches the client.
+            greeting = [socket.receive_json() for _ in range(3)]
+            assert [(e['type'], e.get('speaker'), e.get('text')) for e in greeting] == [
+                ('transcript', 'assistant', "Hi, I'm ready. What's the property address?"),
+                ('audio', None, None),
+                ('turn_complete', None, None),
+            ]
+            socket.send_json({'type': 'audio', 'data': pcm(3300)})
+            events = [socket.receive_json() for _ in range(6)]
+            assert [(e['type'], e.get('speaker'), e.get('text')) for e in events] == [
+                ('transcript', 'technician', 'moisture at the wall'),
+                ('transcript', 'assistant', 'Noted'),
+                ('audio', None, None),
+                ('turn_complete', None, None),
+                ('interrupted', None, None),
+                ('transcript', 'assistant', 'after idle'),
+            ]
+            assert (
+                events[2]['data'] == base64.b64encode(b'\x01\x02').decode()
+                and events[0]['finished'] is True
+            )
+            # The greeting trigger is an instruction, never technician speech or saved job data.
+            assert bm.GREETING_TRIGGER not in json.dumps(greeting + events)
+            assert bm.GREETING_TRIGGER not in json.dumps(store.db.records, default=str)
+            socket.send_json(
+                {'type': 'video', 'data': base64.b64encode(b'\xff\xd8\xffsynthetic').decode()}
+            )
+            assert socket.receive_json() == {'type': 'recovery', 'reason': 'rollover'}
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+        assert store.db.records['_live_resume/owner']['handle'] == 'wire-handle'
+        vertex.replies['setup'] = [{'setupComplete': {}}]
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth(True))
+            assert socket.receive_json()['recovery'] == 'resumed'
+            socket.send_json({'type': 'pause'})
+            socket.send_json({'type': 'end'})
+            assert socket.receive_json() == {'type': 'finished', 'complete': True}
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+    first, second = vertex.connections
+    assert all(
+        c['path'].endswith('LlmBidiService/BidiGenerateContent')
+        and c['authorization'] == 'Bearer synthetic-token'
+        for c in vertex.connections
+    )
+    setup = first['received'][0]['setup']
+    assert (
+        setup['model']
+        == f'projects/{bm.PROJECT_ID}/locations/{bm.LIVE_LOCATION}/publishers/google/models/{bm.LIVE_MODEL}'
+    )
+    assert setup['generationConfig']['responseModalities'] == ['AUDIO']
+    # Nested config objects keep their field names on the wire, exactly as google-genai 2.8.0 sent them;
+    # proto JSON accepts either spelling.
+    assert setup['generationConfig']['speechConfig'] == {
+        'voiceConfig': {'prebuiltVoiceConfig': {'voice_name': 'Charon'}}
+    }
+    assert setup['contextWindowCompression'] == {
+        'trigger_tokens': 64000,
+        'sliding_window': {'target_tokens': 32000},
+    }
+    assert (
+        setup['sessionResumption'] == {}
+        and setup['inputAudioTranscription'] == {}
+        and setup['outputAudioTranscription'] == {}
+    )
+    assert 'GREETING (NEW WALKTHROUGH ONLY)' in setup['systemInstruction']['parts'][0]['text']
+    assert [client_content(m) for m in first['received'] if client_content(m)] == [
+        {
+            'turns': [{'parts': [{'text': bm.GREETING_TRIGGER}], 'role': 'user'}],
+            'turnComplete': True,
+        }
+    ]
+    # A resumed walkthrough already holds the conversation, so it does not greet again.
+    assert not any(client_content(m) for m in second['received'])
+    # Bytes travel as URL-safe base64, as they did with 2.8.0.
+    spoken = base64.urlsafe_b64encode(base64.b64decode(pcm(3300))).decode()
+    assert realtime(first['received'][2]) == {
+        'audio': {'data': spoken, 'mime_type': 'audio/pcm;rate=16000'}
+    }
+    assert realtime(first['received'][3])['video']['mime_type'] == 'image/jpeg'
+    assert second['received'][0]['setup']['sessionResumption'] == {'handle': 'wire-handle'}
+    assert [realtime(m) for m in second['received'][1:]] == [{'audioStreamEnd': True}] * 2
+
+
+def test_checkpoint_owner_capture_expiry_scope_and_stale_cleanup(monkeypatch):
+    store = FakeStore()
+    lease = store.live_lease('owner')
+    fp = 'scope'
+    assert store.live_resume('owner', CAP, ID, fp, lease, 'open') is None
+    store.live_resume('owner', CAP, ID, fp, lease, 'save', 'private-handle', True)
+    assert store.live_resume('owner', CAP, ID, fp, lease, 'open') == 'private-handle'
+    assert store.live_resume('owner', CAP, ID, 'changed', lease, 'open') is None
+    store.live_resume('owner', CAP, ID, 'changed', lease, 'save', 'second', True)
+    store.db.records['_live_resume/owner']['expires'] = time.time() - 1
+    assert store.live_resume('owner', CAP, ID, 'changed', lease, 'open') is None
+    store.live_resume('owner', CAP, ID, 'changed', lease, 'save', 'third', True)
+    store.live_resume('owner', CAP, ID, 'changed', 'stale', 'delete')
+    assert store.db.records['_live_resume/owner']['handle'] == 'third'
+    other = store.live_lease('other')
+    assert store.live_resume('other', CAP, ID, 'changed', other, 'open') is None
+    store.live_resume('owner', CAP, ID, 'changed', lease, 'save', None, False)
+    assert store.live_resume('owner', CAP, ID, 'changed', lease, 'open') is None
+    with pytest.raises(Exception):
+        store.live_lease('owner')
+    a = InspectionData().model_dump()
+    b = {**a, 'technician_transcript': 'updated', 'scope_confirmed': True}
+    assert scope_fingerprint(a) == scope_fingerprint(b)
+    assert scope_fingerprint(a) != scope_fingerprint({**a, 'air_movers': 2})
+
+
+def test_protocol2_control_events_resume_fallback_pause_and_final_drain(monkeypatch):
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    configs = []
+    sent = []
+    sessions = []
+    rejected = []
+
+    class Session:
+        def __init__(self):
+            self.queue = asyncio.Queue()
+            self.greetings = []
+            sessions.append(self)
+
+        async def send_client_content(self, **kw):
+            self.greetings.append(kw)
+
+        async def send_realtime_input(self, **kw):
+            sent.append(kw)
+            if kw.get('audio_stream_end'):
+                await self.queue.put(
+                    NS(
+                        server_content=NS(
+                            interrupted=False,
+                            input_transcription=NS(text='room', finished=True),
+                            output_transcription=None,
+                            model_turn=None,
+                            turn_complete=True,
+                        )
+                    )
+                )
+            elif 'video' in kw:
+                await self.queue.put(NS(server_content=None, go_away=NS(time_left=1)))
+
+        async def receive(self):
+            yield await self.queue.get()
+
+    @asynccontextmanager
+    async def connect(**kw):
+        configs.append(kw['config'])
+        if kw['config'].session_resumption.handle and not rejected:
+            rejected.append(True)
+            raise RuntimeError('Synthetic expired provider handle')
+        session = Session()
+        await session.queue.put(
+            NS(
+                server_content=None,
+                session_resumption_update=NS(new_handle='synthetic-private', resumable=True),
+            )
+        )
+        await session.queue.put(NS(server_content=None, usage_metadata=NS(total_token_count=17)))
+        yield session
+
+    async def close():
+        pass
+
+    async def identity(token, **_):
+        return {'uid': 'owner', 'exp': time.time() + 600}
+
+    monkeypatch.setattr(bm, 'verify_staff', identity)
+    monkeypatch.setattr(bm, 'get_job_store', lambda: store)
+    monkeypatch.setattr(
+        bm.genai, 'Client', lambda **kw: NS(aio=NS(live=NS(connect=connect), aclose=close))
+    )
+
+    def auth(resume=False):
+        return dict(
+            type='authenticate',
+            token='synthetic',
+            inspection_id=ID,
+            protocol_version=2,
+            capture_id=CAP,
+            resume=resume,
+        )
+
+    with TestClient(bm.app) as client:
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth())
+            ready = socket.receive_json()
+            assert ready['voice'] == 'Charon' and ready['recovery'] == 'new'
+            assert socket.receive_json() == {'type': 'usage', 'total_tokens': 17}
+            assert store.db.records['_live_resume/owner']['handle'] == 'synthetic-private'
+            socket.send_json(
+                {'type': 'video', 'data': base64.b64encode(b'\xff\xd8\xffsynthetic').decode()}
+            )
+            assert socket.receive_json()['type'] == 'recovery'
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+            assert '_live_sessions/owner' not in store.db.records
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth(True))
+            response = socket.receive_json()
+            assert response.get('recovery') == 'restarted', response
+            assert socket.receive_json()['type'] == 'usage'
+            socket.send_json({'type': 'audio', 'data': base64.b64encode(b'\0' * 3200).decode()})
+            socket.send_json({'type': 'pause'})
+            text = socket.receive_json()
+            assert text['text'] == 'room' and text['finished'] is True and text['sequence'] == 1
+            assert socket.receive_json()['type'] == 'turn_complete'
+            socket.send_json({'type': 'end'})
+            while True:
+                result = socket.receive_json()
+                if result['type'] == 'finished':
+                    assert result['complete']
+                    break
+            # Provider events already in flight may follow the acknowledgement; the client closes on it.
+            with pytest.raises(WebSocketDisconnect):
+                while True:
+                    assert socket.receive_json()['type'] != 'finished'
+    assert rejected and len(configs) == 3 and any(item.get('audio_stream_end') for item in sent)
+    # Only the new walkthrough greets; the restart after a rejected handle continues silently.
+    assert [len(s.greetings) for s in sessions] == [1, 0]
+    assert sessions[0].greetings[0]['turn_complete'] is True
+    assert (
+        '_live_resume/owner' not in store.db.records
+        and '_live_sessions/owner' not in store.db.records
+    )
+
+
+def pcm(amplitude, samples=1600):
+    # A 16 kHz PCM16 square wave; its RMS equals the amplitude.
+    return base64.b64encode(
+        b''.join(
+            int(amplitude * (1 if i % 40 < 20 else -1)).to_bytes(2, 'little', signed=True)
+            for i in range(samples)
+        )
+    ).decode()
+
+
+def finishing_relay(monkeypatch, store):
+    class Session:
+        def __init__(self):
+            self.queue = asyncio.Queue()
+            self.spoken = False
+
+        async def send_client_content(self, **kw):
+            pass
+
+        async def send_realtime_input(self, **kw):
+            if 'audio' in kw and not self.spoken:
+                self.spoken = True
+                await self.queue.put(
+                    NS(
+                        server_content=NS(
+                            interrupted=False,
+                            input_transcription=NS(text='moisture at the wall', finished=True),
+                            output_transcription=None,
+                            model_turn=None,
+                            turn_complete=False,
+                        )
+                    )
+                )
+
+        async def receive(self):
+            yield await self.queue.get()
+
+    @asynccontextmanager
+    async def connect(**kw):
+        yield Session()
+
+    async def close():
+        pass
+
+    async def identity(token, **_):
+        return {'uid': 'owner', 'exp': time.time() + 600}
+
+    monkeypatch.setattr(bm, 'verify_staff', identity)
+    monkeypatch.setattr(bm, 'get_job_store', lambda: store)
+    monkeypatch.setattr(
+        bm.genai, 'Client', lambda **kw: NS(aio=NS(live=NS(connect=connect), aclose=close))
+    )
+
+
+def test_trailing_silence_after_final_transcript_still_finishes_complete(monkeypatch):
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    finishing_relay(monkeypatch, store)
+    with (
+        TestClient(bm.app) as client,
+        client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket,
+    ):
+        socket.send_json(
+            dict(
+                type='authenticate',
+                token='synthetic',
+                inspection_id=ID,
+                protocol_version=2,
+                capture_id=CAP,
+            )
+        )
+        assert socket.receive_json()['type'] == 'ready'
+        # Conversational speech after browser AGC sits near -20 dBFS (RMS ~3300).
+        socket.send_json({'type': 'audio', 'data': pcm(3300)})
+        assert socket.receive_json()['finished'] is True
+        # The open microphone keeps streaming: digital silence and a suppressed noise floor near -50 dBFS (RMS ~100).
+        for amplitude in (0, 100, 0, 100):
+            socket.send_json({'type': 'audio', 'data': pcm(amplitude)})
+        started = time.monotonic()
+        socket.send_json({'type': 'end'})
+        assert socket.receive_json() == {'type': 'finished', 'complete': True}
+        assert time.monotonic() - started < 1
+
+
+def test_finished_is_acknowledged_before_cleanup_writes(monkeypatch):
+    import threading
+
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    finishing_relay(monkeypatch, store)
+    acknowledged = threading.Event()
+    releases = []
+    original = store.live_lease
+
+    def lease(uid, lease_id=None, release=False):
+        if release:
+            releases.append(acknowledged.wait(5))
+        return original(uid, lease_id, release)
+
+    monkeypatch.setattr(store, 'live_lease', lease)
+    with (
+        TestClient(bm.app) as client,
+        client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket,
+    ):
+        socket.send_json(
+            dict(
+                type='authenticate',
+                token='synthetic',
+                inspection_id=ID,
+                protocol_version=2,
+                capture_id=CAP,
+            )
+        )
+        assert socket.receive_json()['type'] == 'ready'
+        socket.send_json({'type': 'end'})
+        assert socket.receive_json()['type'] == 'finished'
+        acknowledged.set()
+        with pytest.raises(WebSocketDisconnect):
+            socket.receive_json()
+    assert releases == [True] and '_live_sessions/owner' not in store.db.records
+
+
+def test_daily_live_start_cap_rejects_before_vertex(monkeypatch):
+    import backend.inspection_store as module
+
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    finishing_relay(monkeypatch, store)
+    monkeypatch.setitem(module.DAILY_LIMITS, 'live', 1)
+    opened = []
+    relay = bm.genai.Client
+    monkeypatch.setattr(bm.genai, 'Client', lambda **kw: opened.append(True) or relay(**kw))
+    auth = dict(
+        type='authenticate', token='synthetic', inspection_id=ID, protocol_version=2, capture_id=CAP
+    )
+    with TestClient(bm.app) as client:
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth)
+            assert socket.receive_json()['type'] == 'ready'
+            socket.send_json({'type': 'end'})
+            assert socket.receive_json()['type'] == 'finished'
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+        assert '_live_sessions/owner' not in store.db.records
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth)
+            assert socket.receive_json() == {
+                'type': 'error',
+                'message': 'Too many requests. Please wait and retry.',
+                'status': 429,
+            }
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+    assert opened == [True] and '_live_sessions/owner' not in store.db.records
+
+
+@pytest.mark.parametrize('protocol', [1, 2])
+def test_resume_flag_without_checkpoint_is_charged_as_a_new_start(monkeypatch, protocol):
+    import backend.inspection_store as module
+
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    finishing_relay(monkeypatch, store)
+    monkeypatch.setitem(module.DAILY_LIMITS, 'live', 1)
+    opened = []
+    relay = bm.genai.Client
+    monkeypatch.setattr(bm.genai, 'Client', lambda **kw: opened.append(True) or relay(**kw))
+    auth = dict(
+        type='authenticate',
+        token='synthetic',
+        inspection_id=ID,
+        protocol_version=protocol,
+        resume=True,
+    )
+    if protocol == 2:
+        auth['capture_id'] = CAP
+    with TestClient(bm.app) as client:
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth)
+            assert socket.receive_json()['type'] == 'ready'
+            socket.send_json({'type': 'end'})
+            if protocol == 2:
+                assert socket.receive_json()['type'] == 'finished'
+            # The server closes only after releasing the lease, so the next 429 is the daily cap.
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+        assert '_live_sessions/owner' not in store.db.records
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth)
+            error = socket.receive_json()
+            assert error['message'] == 'Too many requests. Please wait and retry.'
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+    assert opened == [True] and '_live_sessions/owner' not in store.db.records
+
+
+def test_genuine_resume_with_saved_checkpoint_is_not_charged_again(monkeypatch):
+    import backend.inspection_store as module
+
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    finishing_relay(monkeypatch, store)
+    monkeypatch.setitem(module.DAILY_LIMITS, 'live', 1)
+    fingerprint = scope_fingerprint(store.get_inspection('owner', ID)['data'])
+
+    def auth(resume):
+        return dict(
+            type='authenticate',
+            token='synthetic',
+            inspection_id=ID,
+            protocol_version=2,
+            capture_id=CAP,
+            resume=resume,
+        )
+
+    with TestClient(bm.app) as client:
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth(False))
+            assert socket.receive_json()['recovery'] == 'new'
+            socket.send_json({'type': 'end'})
+            assert socket.receive_json()['type'] == 'finished'
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+        # The provider handed out a resumption handle before the connection dropped.
+        lease = store.live_lease('owner')
+        store.live_resume('owner', CAP, ID, fingerprint, lease, 'open')
+        store.live_resume('owner', CAP, ID, fingerprint, lease, 'save', 'synthetic-private', True)
+        store.live_lease('owner', lease, True)
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth(True))
+            assert socket.receive_json()['recovery'] == 'resumed'
+            socket.send_json({'type': 'end'})
+            assert socket.receive_json()['type'] == 'finished'
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+        with client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket:
+            socket.send_json(auth(False))
+            error = socket.receive_json()
+            assert error['type'] == 'error' and error['status'] == 429
+            with pytest.raises(WebSocketDisconnect):
+                socket.receive_json()
+
+
+def token_relay(monkeypatch, store, claims):
+    finishing_relay(monkeypatch, store)
+    calls = []
+
+    async def identity(token, **_):
+        calls.append(token)
+        if token not in claims:
+            raise bm.HTTPException(401, 'Your sign-in expired. Please sign in again.')
+        return claims[token]
+
+    monkeypatch.setattr(bm, 'verify_staff', identity)
+    monkeypatch.setattr(bm, 'LIVE_RECHECK_SECONDS', 0.05)
+    return calls
+
+
+@pytest.mark.parametrize('refresh', [True, False])
+def test_refreshed_token_keeps_the_session_open_past_the_original_expiry(monkeypatch, refresh):
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    calls = token_relay(
+        monkeypatch,
+        store,
+        {
+            'initial': {'uid': 'owner', 'exp': time.time() + 0.5},
+            'renewed': {'uid': 'owner', 'exp': time.time() + 3600},
+        },
+    )
+    with (
+        TestClient(bm.app) as client,
+        client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket,
+    ):
+        socket.send_json(
+            dict(
+                type='authenticate',
+                token='initial',
+                inspection_id=ID,
+                protocol_version=2,
+                capture_id=CAP,
+            )
+        )
+        assert socket.receive_json()['token_refresh'] is True
+        if refresh:
+            socket.send_json({'type': 'refresh', 'token': 'renewed'})
+        # The heartbeat runs several times after the initial token's exp has passed.
+        time.sleep(1)
+        socket.send_json({'type': 'end'})
+        if refresh:
+            assert socket.receive_json() == {'type': 'finished', 'complete': True}
+        else:
+            assert socket.receive_json()['type'] == 'error'
+        with pytest.raises(WebSocketDisconnect):
+            socket.receive_json()
+    if refresh:
+        # Only the newest token is re-verified once the refresh lands.
+        assert (
+            calls[0] == 'initial'
+            and calls.count('renewed') >= 5
+            and 'initial' not in calls[calls.index('renewed') :]
+        )
+    assert '_live_sessions/owner' not in store.db.records
+
+
+@pytest.mark.parametrize('token,status', [('intruder', None), ('forged', 401)])
+def test_refresh_for_another_user_or_invalid_token_closes_without_switching_identity(
+    monkeypatch, token, status
+):
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    calls = token_relay(
+        monkeypatch,
+        store,
+        {
+            'initial': {'uid': 'owner', 'exp': time.time() + 3600},
+            'intruder': {'uid': 'other', 'exp': time.time() + 3600},
+        },
+    )
+    with (
+        TestClient(bm.app) as client,
+        client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket,
+    ):
+        socket.send_json(
+            dict(
+                type='authenticate',
+                token='initial',
+                inspection_id=ID,
+                protocol_version=2,
+                capture_id=CAP,
+            )
+        )
+        assert socket.receive_json()['type'] == 'ready'
+        assert '_live_resume/owner' in store.db.records
+        socket.send_json({'type': 'refresh', 'token': token})
+        error = socket.receive_json()
+        assert error['type'] == 'error' and error.get('status') == status
+        with pytest.raises(WebSocketDisconnect):
+            socket.receive_json()
+    assert calls[0] == 'initial' and token in calls
+    # A rejected refresh is treated like revocation: no checkpoint survives to resume from.
+    assert (
+        '_live_resume/owner' not in store.db.records
+        and '_live_sessions/owner' not in store.db.records
+    )
+
+
+def test_numbered_audio_is_acknowledged_and_a_completed_turn_ends_the_finish_drain(
+    monkeypatch, capsys
+):
+    # gemini-3.8-live never sets a transcription's finished flag; the completed model turn must
+    # still let Finish report a complete capture at once, and the session log carries only counts.
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    frames = []
+
+    class Session:
+        def __init__(self):
+            self.queue = asyncio.Queue()
+
+        async def send_client_content(self, **kw):
+            pass
+
+        async def send_realtime_input(self, **kw):
+            if 'video' in kw:
+                frames.append(kw)
+            elif 'audio' in kw and bm.is_speech(kw['audio'].data):
+                reply = dict(interrupted=False, input_transcription=None, turn_complete=False)
+                for content in (
+                    dict(reply, input_transcription=NS(text='the kitchen', finished=None)),
+                    dict(
+                        reply,
+                        output_transcription=NS(text='Which wall?', finished=None),
+                        model_turn=NS(parts=[NS(inline_data=NS(data=b'\0' * 48000))]),
+                    ),
+                    dict(reply, turn_complete=True),
+                ):
+                    content.setdefault('output_transcription', None)
+                    content.setdefault('model_turn', None)
+                    await self.queue.put(NS(server_content=NS(**content)))
+
+        async def receive(self):
+            yield await self.queue.get()
+
+    @asynccontextmanager
+    async def connect(**kw):
+        yield Session()
+
+    async def close():
+        pass
+
+    async def identity(token, **_):
+        return {'uid': 'owner', 'exp': time.time() + 600}
+
+    monkeypatch.setattr(bm, 'verify_staff', identity)
+    monkeypatch.setattr(bm, 'get_job_store', lambda: store)
+    monkeypatch.setattr(
+        bm.genai, 'Client', lambda **kw: NS(aio=NS(live=NS(connect=connect), aclose=close))
+    )
+    with (
+        TestClient(bm.app) as client,
+        client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket,
+    ):
+        socket.send_json(
+            dict(
+                type='authenticate',
+                token='synthetic',
+                inspection_id=ID,
+                protocol_version=2,
+                capture_id=CAP,
+            )
+        )
+        assert socket.receive_json()['audio_ack'] == bm.AUDIO_ACK_EVERY == 10
+        for seq in range(1, 10):
+            socket.send_json({'type': 'audio', 'data': pcm(0), 'seq': seq})
+        socket.send_json({'type': 'audio', 'data': pcm(3300), 'seq': 10})
+        events = []
+        while not {'ack', 'turn_complete'} <= {e['type'] for e in events}:
+            events.append(socket.receive_json())
+        assert [e for e in events if e['type'] == 'ack'] == [{'type': 'ack', 'seq': 10}]
+        assert [e.get('text') for e in events if e['type'] == 'transcript'] == [
+            'the kitchen',
+            'Which wall?',
+        ]
+        # Unnumbered or non-integer packets are forwarded but never acknowledged.
+        socket.send_json({'type': 'audio', 'data': pcm(0)})
+        socket.send_json({'type': 'audio', 'data': pcm(0), 'seq': True})
+        socket.send_json({'type': 'audio', 'data': pcm(0), 'seq': 20})
+        assert socket.receive_json() == {'type': 'ack', 'seq': 20}
+        socket.send_json(
+            {'type': 'video', 'data': base64.b64encode(b'\xff\xd8\xffsynthetic').decode()}
+        )
+        started = time.monotonic()
+        socket.send_json({'type': 'end', 'gap_count': 92, 'video_pauses': 3, 'secret': 'x'})
+        assert socket.receive_json() == {'type': 'finished', 'complete': True}
+        assert time.monotonic() - started < 1
+        with pytest.raises(WebSocketDisconnect):
+            while True:
+                socket.receive_json()
+    output = capsys.readouterr().out
+    [entry] = [json.loads(line) for line in output.splitlines() if '"Live session ended"' in line]
+    assert entry['outcome'] == 'finished' and len(frames) == 1
+    assert {k: entry[k] for k in entry if k not in ('reply_latency_ms_median', 'severity')} == {
+        'message': 'Live session ended',
+        'model': bm.LIVE_MODEL,
+        'operation': 'live',
+        'inspection_id': ID,
+        'duration_ms': entry['duration_ms'],
+        'outcome': 'finished',
+        'mic_seconds': 1.3,
+        'mic_gap_max_ms': entry['mic_gap_max_ms'],
+        'video_frames': 1,
+        'turns': 1,
+        'interruptions': 0,
+        'model_audio_seconds': 1.0,
+        'reply_latency_ms_max': entry['reply_latency_ms_median'],
+        'reply_pace_median': 20.0,
+        'client_gap_count': 92,
+        'client_video_pauses': 3,
+    }
+    assert 0 <= entry['reply_latency_ms_median'] < 5000 and 0 <= entry['mic_gap_max_ms'] < 5000
+    for content in ('the kitchen', 'Which wall?'):
+        assert content not in output
+
+
+def test_live_counters_measure_reply_latency_pace_and_gaps_without_content():
+    from backend.live_support import LiveCounters
+
+    counters = LiveCounters()
+    counters.audio(3200, False, 10.0)
+    counters.pause()
+    # A muted stretch is not a delivery gap.
+    counters.audio(3200, True, 40.0)
+    counters.audio(3200, False, 40.5)
+    counters.model_audio(24000, 41.7)
+    counters.model_audio(72000, 42.7)
+    counters.end_reply()
+    # A reply with no new speech before it (a continuation) adds no latency sample.
+    counters.model_audio(4800, 50.0)
+    counters.end_reply(interrupted=True)
+    counters.client_end({'gap_count': 7, 'video_pauses': -1})
+    assert counters.fields() == {
+        'mic_seconds': 0.3,
+        'mic_gap_max_ms': 500,
+        'video_frames': 0,
+        'turns': 1,
+        'interruptions': 1,
+        'model_audio_seconds': 2.1,
+        'reply_latency_ms_median': 1700,
+        'reply_latency_ms_max': 1700,
+        'reply_pace_median': 2.0,
+        'client_gap_count': 7,
+        'client_video_pauses': None,
+    }
+
+
+def test_only_a_reply_begun_after_the_last_speech_proves_that_speech_was_heard():
+    from backend.live_support import LiveCounters
+
+    counters = LiveCounters()
+    counters.audio(3200, True, 1.0)
+    counters.model_audio(4800, 2.0)
+    assert counters.end_reply() is True
+    # Speech over a reply in progress is still unanswered when that reply completes.
+    counters.audio(3200, True, 3.0)
+    counters.model_audio(4800, 4.0)
+    counters.audio(3200, True, 4.5)
+    assert counters.end_reply() is False
+    # Live closes an interrupted reply with its own turn_complete, which is not another turn.
+    counters.model_audio(4800, 6.0)
+    counters.audio(3200, True, 6.5)
+    assert counters.end_reply(interrupted=True) is False
+    assert counters.end_reply() is False
+    assert (counters.turns, counters.interruptions) == (2, 1)
+
+
+def test_finish_stays_incomplete_when_only_an_interrupted_reply_completes(monkeypatch):
+    store = FakeStore()
+    store.create_inspection('owner', ID, InspectionData().model_dump())
+    speech = []
+
+    class Session:
+        def __init__(self):
+            self.queue = asyncio.Queue()
+
+        async def send_client_content(self, **kw):
+            pass
+
+        async def send_realtime_input(self, **kw):
+            if 'audio' not in kw or not bm.is_speech(kw['audio'].data):
+                return
+            speech.append(1)
+            base = dict(
+                interrupted=False,
+                input_transcription=None,
+                output_transcription=None,
+                model_turn=None,
+                turn_complete=False,
+            )
+            if len(speech) == 1:
+                part = NS(inline_data=NS(data=b'\0' * 4800))
+                await self.queue.put(
+                    NS(server_content=NS(**dict(base, model_turn=NS(parts=[part]))))
+                )
+            else:
+                await self.queue.put(NS(server_content=NS(**dict(base, interrupted=True))))
+                await self.queue.put(NS(server_content=NS(**dict(base, turn_complete=True))))
+
+        async def receive(self):
+            yield await self.queue.get()
+
+    @asynccontextmanager
+    async def connect(**kw):
+        yield Session()
+
+    async def close():
+        pass
+
+    async def identity(token, **_):
+        return {'uid': 'owner', 'exp': time.time() + 600}
+
+    monkeypatch.setattr(bm, 'verify_staff', identity)
+    monkeypatch.setattr(bm, 'get_job_store', lambda: store)
+    monkeypatch.setattr(
+        bm.genai, 'Client', lambda **kw: NS(aio=NS(live=NS(connect=connect), aclose=close))
+    )
+    with (
+        TestClient(bm.app) as client,
+        client.websocket_connect('/api/live', headers={'origin': bm.ORIGINS[0]}) as socket,
+    ):
+        socket.send_json(
+            dict(
+                type='authenticate',
+                token='synthetic',
+                inspection_id=ID,
+                protocol_version=2,
+                capture_id=CAP,
+            )
+        )
+        assert socket.receive_json()['type'] == 'ready'
+        socket.send_json({'type': 'audio', 'data': pcm(3300)})
+        assert socket.receive_json()['type'] == 'audio'
+        # The technician talks over the reply with a final measurement, then taps Stop.
+        socket.send_json({'type': 'audio', 'data': pcm(3300)})
+        assert [socket.receive_json()['type'] for _ in range(2)] == [
+            'interrupted',
+            'turn_complete',
+        ]
+        socket.send_json({'type': 'end'})
+        assert socket.receive_json() == {'type': 'finished', 'complete': False}

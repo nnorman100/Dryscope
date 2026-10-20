@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # backend/Dockerfile is the single source of the Python version.
+      - id: python
+        run: echo "version=$(python3 scripts/ci_python_version.py)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install --require-hashes -r backend/requirements.txt -r backend/requirements-dev.txt
+      - run: python -m pytest tests -q -p no:cacheprovider
+      - run: python -m ruff format --check .
+      - run: python -m ruff check .
+
+  firestore-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ADR_FIRESTORE_EMULATOR_REQUIRED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # backend/Dockerfile is the single source of the Python version.
+      - id: python
+        run: echo "version=$(python3 scripts/ci_python_version.py)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      # The Firestore emulator runs on Java 21 or later.
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+      - run: pip install --require-hashes -r backend/requirements.txt -r backend/requirements-dev.txt
+      # firebase-tools' emulators:exec starts the emulator, sets FIRESTORE_EMULATOR_HOST for the
+      # tests and stops it afterwards; it stays out of package.json so other jobs do not install it.
+      # The demo- project ID keeps everything offline.
+      - run: >-
+          npx --yes firebase-tools@15.31.0 emulators:exec --only firestore --project demo-adr-emulator
+          "python -m pytest tests/test_firestore_emulator.py -q -p no:cacheprovider"
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm test
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ADR_BROWSER_PORT: '8876'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # backend/Dockerfile is the single source of the Python version.
+      - id: python
+        run: echo "version=$(python3 scripts/ci_python_version.py)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ steps.python.outputs.version }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: pip install --require-hashes -r backend/requirements.txt -r backend/requirements-dev.txt
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:browser -- --config=playwright.isolated.config.js
+        env:
+          ADR_BROWSER_ARTIFACTS: ${{ runner.temp }}/adr-browser
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: browser-results
+          path: ${{ runner.temp }}/adr-browser
+          retention-days: 14
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.x'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+      # Audits the hash-locked files as written; nothing is resolved or installed from them.
+      # To accept a false positive or an unfixable advisory, add `--ignore-vuln <ID>` to the
+      # pip-audit commands with a comment giving the reason and date (see README.md).
+      - run: python -m pip install pip-audit==2.10.1
+      - run: pip-audit --require-hashes --disable-pip -r backend/requirements.txt
+      - run: pip-audit --require-hashes --disable-pip -r backend/requirements-dev.txt
+      - run: npm audit --audit-level=high

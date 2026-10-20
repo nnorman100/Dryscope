@@ -1,0 +1,1834 @@
+'use client';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { RestorationJob, PhotoEvidence, MoistureReading } from '@/lib/types';
+import {
+  Mic,
+  MicOff,
+  Camera,
+  Upload,
+  Sparkles,
+  MapPin,
+  CheckCircle2,
+  AlertTriangle,
+  Flame,
+  Droplets,
+  Biohazard,
+  QrCode,
+  FileCheck,
+  RefreshCw,
+  Plus,
+  Trash2,
+  Navigation,
+  ThermometerSnowflake,
+  Gauge,
+  ArrowRight,
+  Wrench,
+  TrendingUp,
+  Droplet,
+  Wind,
+  Layers,
+  FileText,
+  ExternalLink,
+  Compass,
+  Crosshair,
+  Maximize2,
+  Copy,
+  Map,
+  Globe,
+  Radio,
+  Barcode,
+} from 'lucide-react';
+import QRCode from 'qrcode';
+import { PsychrometricCalculator } from './PsychrometricCalculator';
+import { QrAssetScannerModal } from './QrAssetScannerModal';
+import {
+  usePhotoGeolocation,
+  buildGoogleMapsUrl,
+  buildGoogleMapsSatelliteUrl,
+  buildGoogleMapsDirectionsUrl,
+  buildGoogleMapsEmbedUrl,
+  formatCoordinatesDMS,
+} from '@/hooks/usePhotoGeolocation';
+
+interface TechFieldDashboardProps {
+  job: RestorationJob;
+  onUpdateJob: (updated: RestorationJob) => void;
+  onNavigateToPortal: () => void;
+  onNavigateToPipeline?: () => void;
+  onOpenDocSuite?: () => void;
+}
+
+export function TechFieldDashboard({
+  job,
+  onUpdateJob,
+  onNavigateToPortal,
+  onNavigateToPipeline,
+  onOpenDocSuite,
+}: TechFieldDashboardProps) {
+  // Sub-tab navigation state
+  const [activeSubTab, setActiveSubTab] = useState<'scoping' | 'psychrometrics' | 'all'>('scoping');
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState(job.rawTranscript || '');
+  const [isParsingScope, setIsParsingScope] = useState(false);
+  const [parseMessage, setParseMessage] = useState<string | null>(null);
+
+  // Photo Inspection & Geolocation Hook
+  const {
+    isLocating: isGpsLocating,
+    currentCoords: liveGpsCoords,
+    geoError,
+    captureLocation,
+  } = usePhotoGeolocation();
+
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [activePhotoId, setActivePhotoId] = useState<string | null>(null);
+  const [photoCategory, setPhotoCategory] = useState<'damage' | 'moisture_meter' | 'thermal'>('moisture_meter');
+  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
+  const [analyzedResult, setAnalyzedResult] = useState<any>(null);
+  const [selectedMapPhoto, setSelectedMapPhoto] = useState<PhotoEvidence | null>(null);
+  const [copiedCoordId, setCopiedCoordId] = useState<string | null>(null);
+  const [previewEnlargePhoto, setPreviewEnlargePhoto] = useState<PhotoEvidence | null>(null);
+  const [gpsCalibrateMessage, setGpsCalibrateMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // QR Code Modal State for On-Site Client Signing
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+
+  // Asset & Room Tag Scanner Modal State
+  const [showAssetScanner, setShowAssetScanner] = useState(false);
+
+  // Speech recognition fallback
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition =
+        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.onresult = (event: any) => {
+          let current = '';
+          for (let i = 0; i < event.results.length; i++) {
+            current += event.results[i][0].transcript + ' ';
+          }
+          setTranscript((prev) => (prev ? prev + ' ' + current : current));
+        };
+        recognition.onerror = (e: any) => {
+          console.log('Speech recognition event:', e.error);
+        };
+        recognitionRef.current = recognition;
+      }
+    }
+  }, []);
+
+  // Generate QR Code for on-site client signing
+  const handleOpenQrModal = async () => {
+    setShowQrModal(true);
+    try {
+      const portalUrl =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}?role=client&jobId=${job.id}#portal`
+          : 'https://dryscope.io/portal';
+      const url = await QRCode.toDataURL(portalUrl, {
+        width: 320,
+        margin: 2,
+        color: {
+          dark: '#0B192C',
+          light: '#FFFFFF',
+        },
+      });
+      setQrDataUrl(url);
+    } catch (err) {
+      console.error('QR code generation error:', err);
+    }
+  };
+
+  // Toggle Push-to-Talk Mic
+  const toggleRecording = () => {
+    if (isRecording) {
+      setIsRecording(false);
+      try {
+        recognitionRef.current?.stop();
+      } catch (e) {}
+    } else {
+      setIsRecording(true);
+      try {
+        recognitionRef.current?.start();
+      } catch (e) {
+        // Mock streaming soundwave if native speech recognition is not supported or permitted
+      }
+    }
+  };
+
+  // Load realistic field sample dictation
+  const handleLoadSample = (sampleText: string) => {
+    setTranscript(sampleText);
+  };
+
+  // Call server-side /api/scope
+  const handleParseScopeWithAI = async () => {
+    if (!transcript.trim()) return;
+    setIsParsingScope(true);
+    setParseMessage(null);
+
+    try {
+      const res = await fetch('/api/scope', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript, existingJobData: job }),
+      });
+
+      const json = await res.json();
+      if (json.success && json.data) {
+        const d = json.data;
+        const updated: RestorationJob = {
+          ...job,
+          rawTranscript: transcript,
+          category: d.category || job.category,
+          finishType: d.finishType || job.finishType,
+          cabinetryMultiplier: d.cabinetryMultiplier ?? job.cabinetryMultiplier,
+          afterHours: d.afterHours ?? job.afterHours,
+          dimensions: d.dimensions && d.dimensions.length > 0 ? d.dimensions : job.dimensions,
+          actions: d.actions && d.actions.length > 0 ? d.actions : job.actions,
+          moistureReadings:
+            d.moistureReadings && d.moistureReadings.length > 0
+              ? [
+                  ...job.moistureReadings,
+                  ...d.moistureReadings.map((m: any, idx: number) => ({
+                    ...m,
+                    id: `mr-ai-${Date.now()}-${idx}`,
+                  })),
+                ]
+              : job.moistureReadings,
+          equipment: {
+            ...job.equipment,
+            ...(d.equipment || {}),
+          },
+          technicianNotes: d.technicianSummary
+            ? `${job.technicianNotes}\n${d.technicianSummary}`.trim()
+            : job.technicianNotes,
+          updatedAt: new Date().toISOString(),
+        };
+
+        onUpdateJob(updated);
+        setParseMessage(
+          `✓ Scope parsed successfully: ${d.dimensions?.length || 1} room(s), Category: ${d.category || job.category}. Zero dollar estimates calculated per strict rule.`
+        );
+      } else {
+        setParseMessage(`Error: ${json.error || 'Parsing failed'}`);
+      }
+    } catch (err: any) {
+      setParseMessage(`Parsing error: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsParsingScope(false);
+    }
+  };
+
+  // Photo file selection & automatic GPS capture via usePhotoGeolocation hook
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (uploadEvent) => {
+      const base64 = uploadEvent.target?.result as string;
+      setPhotoPreview(base64);
+      setAnalyzedResult(null);
+
+      // Automatically capture browser geolocation via the usePhotoGeolocation hook
+      const gpsResult = await captureLocation(
+        job.client.address,
+        job.gpsCoordinates
+      );
+
+      const newPhotoId = `photo-${Date.now()}`;
+      setActivePhotoId(newPhotoId);
+
+      const categoryLabels: Record<string, string> = {
+        moisture_meter: 'Moisture Meter Inspection',
+        thermal: 'FLIR Thermal Imaging Screen',
+        damage: 'Structural Loss Evidence',
+        containment: 'Containment Barrier Verification',
+      };
+
+      const newPhoto: PhotoEvidence = {
+        id: newPhotoId,
+        caption: `${job.dimensions[0]?.roomName || 'Field'} – ${categoryLabels[photoCategory] || 'Field Photo Evidence'}`,
+        dataUrl: base64,
+        category: photoCategory,
+        roomName: job.dimensions[0]?.roomName || 'Loss Area',
+        technicalDescription: 'Photo captured on site with browser geolocation verification.',
+        clientSummary: 'Field inspection photo captured at property.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        gps: {
+          latitude: gpsResult.latitude,
+          longitude: gpsResult.longitude,
+          accuracy: gpsResult.accuracy,
+          altitude: gpsResult.altitude,
+          address: gpsResult.address || job.client.address,
+          mapUrl: gpsResult.mapUrl,
+          satelliteUrl: gpsResult.satelliteUrl,
+          directionsUrl: gpsResult.directionsUrl,
+          capturedAt: gpsResult.capturedAt,
+          source: gpsResult.source,
+        },
+      };
+
+      // Store these coordinates within the job's photos array immediately
+      const updatedPhotos = [newPhoto, ...job.photos];
+
+      onUpdateJob({
+        ...job,
+        photos: updatedPhotos,
+        gpsCoordinates: {
+          latitude: gpsResult.latitude,
+          longitude: gpsResult.longitude,
+          address: gpsResult.address || job.client.address,
+          accuracy: gpsResult.accuracy,
+          mapUrl: gpsResult.mapUrl,
+        },
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Inspect photo with Gemini Vision and preserve GPS coordinates
+  const handleAnalyzePhotoWithAI = async () => {
+    if (!photoPreview) return;
+    setIsAnalyzingPhoto(true);
+
+    try {
+      const res = await fetch('/api/analyze-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: photoPreview,
+          categoryHint: photoCategory,
+          roomName: job.dimensions[0]?.roomName || 'Loss Area',
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success && json.data) {
+        setAnalyzedResult(json.data);
+
+        // Update the photo in job.photos (matching activePhotoId or top photo)
+        const targetId = activePhotoId || (job.photos[0] ? job.photos[0].id : null);
+        let updatedPhotos = [...job.photos];
+
+        if (targetId) {
+          updatedPhotos = updatedPhotos.map((p) => {
+            if (p.id === targetId) {
+              return {
+                ...p,
+                caption: `${job.dimensions[0]?.roomName || 'Field'} – ${json.data.substrate || 'Inspection Evidence'}`,
+                category: json.data.category || p.category,
+                technicalDescription: json.data.technicalDescription || p.technicalDescription,
+                clientSummary: json.data.clientSummary || p.clientSummary,
+                substrate: json.data.substrate || p.substrate,
+                meterReading: json.data.meterReading || p.meterReading,
+                thermalDelta: json.data.thermalDelta || p.thermalDelta,
+                // Preserves captured GPS coordinates and Google Maps URLs!
+              };
+            }
+            return p;
+          });
+        }
+
+        let updatedMoisture = [...job.moistureReadings];
+        if (json.data.meterReading) {
+          const val = parseFloat(json.data.meterReading.replace(/[^\d.]/g, '')) || 32.5;
+          updatedMoisture.push({
+            id: `mr-vision-${Date.now()}`,
+            roomName: job.dimensions[0]?.roomName || 'Field Inspection',
+            substrate: json.data.substrate || 'Gypsum / Subfloor',
+            readingValue: val,
+            unit: '% WME',
+            dryStandard: 12.0,
+            isAffected: val > 16.0,
+            notes: 'Extracted automatically from meter display photo OCR',
+          });
+        }
+
+        onUpdateJob({
+          ...job,
+          photos: updatedPhotos,
+          moistureReadings: updatedMoisture,
+        });
+      }
+    } catch (err) {
+      console.error('Photo analysis error:', err);
+    } finally {
+      setIsAnalyzingPhoto(false);
+    }
+  };
+
+  const handleDeletePhoto = (photoId: string) => {
+    const updated = job.photos.filter((p) => p.id !== photoId);
+    onUpdateJob({ ...job, photos: updated });
+    if (activePhotoId === photoId) {
+      setActivePhotoId(null);
+      setPhotoPreview(null);
+      setAnalyzedResult(null);
+    }
+  };
+
+  const handleCopyCoordinates = (photo: PhotoEvidence) => {
+    if (!photo.gps) return;
+    const text = `${photo.gps.latitude.toFixed(5)}, ${photo.gps.longitude.toFixed(5)}`;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedCoordId(photo.id);
+      setTimeout(() => setCopiedCoordId(null), 2500);
+    }
+  };
+
+  const handleCalibrateGps = async () => {
+    setGpsCalibrateMessage('Acquiring high-accuracy GPS fix...');
+    const result = await captureLocation(job.client.address, job.gpsCoordinates);
+    onUpdateJob({
+      ...job,
+      gpsCoordinates: {
+        latitude: result.latitude,
+        longitude: result.longitude,
+        address: result.address || job.client.address,
+        accuracy: result.accuracy,
+        mapUrl: result.mapUrl,
+      },
+    });
+    setGpsCalibrateMessage(
+      `✓ GPS Calibrated: ${result.latitude.toFixed(4)}, ${result.longitude.toFixed(4)} (±${Math.round(result.accuracy || 5)}m)`
+    );
+    setTimeout(() => setGpsCalibrateMessage(null), 4000);
+  };
+
+  // Quick Action Tag insertion
+  const handleAddQuickTag = (tag: string) => {
+    let newTranscript = transcript;
+    if (tag === 'flood_cut_24') {
+      newTranscript += ' 24-inch flood cut required on wet drywall.';
+      if (!job.actions.includes('FLOOD_CUT')) {
+        onUpdateJob({ ...job, actions: [...job.actions, 'FLOOD_CUT'] });
+      }
+    } else if (tag === 'baseboard') {
+      newTranscript += ' Remove all swollen baseboard trim and haul away.';
+      if (!job.actions.includes('REMOVE_BASEBOARD')) {
+        onUpdateJob({ ...job, actions: [...job.actions, 'REMOVE_BASEBOARD'] });
+      }
+    } else if (tag === 'antimicrobial') {
+      newTranscript += ' Apply EPA registered botanical antimicrobial wash.';
+      if (!job.actions.includes('APPLY_ANTIMICROBIAL')) {
+        onUpdateJob({ ...job, actions: [...job.actions, 'APPLY_ANTIMICROBIAL'] });
+      }
+    } else if (tag === 'equipment_standard') {
+      newTranscript += ' Place 4 centrifugal air movers and 1 LGR dehumidifier for 3 days.';
+      onUpdateJob({
+        ...job,
+        equipment: {
+          ...job.equipment,
+          airMovers: 4,
+          dehumidifiers: 1,
+          dryingDays: 3,
+        },
+      });
+    }
+    setTranscript(newTranscript.trim());
+  };
+
+  const latestLog =
+    job.psychrometricLogs && job.psychrometricLogs.length > 0
+      ? job.psychrometricLogs[job.psychrometricLogs.length - 1]
+      : null;
+
+  return (
+    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {/* Field Tech Header Card */}
+      <div className="bg-[#0B192C] text-white p-5 sm:p-6 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 border border-slate-800">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1">
+              <Wrench className="w-3 h-3" />
+              Sales Technician Field Scoping
+            </span>
+            <span className="text-xs text-slate-400">Job #{job.jobId}</span>
+          </div>
+          <h2 className="text-2xl font-black mt-1 text-white">
+            {job.client.name} – {job.client.address}
+          </h2>
+          <p className="text-xs text-slate-300 mt-0.5">
+            Loss Category: <span className="font-semibold text-emerald-400">{job.category}</span> ({job.finishType}) • Policy: {job.client.policyNumber}
+          </p>
+        </div>
+
+        {/* On-Site Client QR Code Signing Trigger, Asset Scanner & Pipeline Nav */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onNavigateToPipeline && (
+            <button
+              onClick={onNavigateToPipeline}
+              className="px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+            >
+              <TrendingUp className="w-4 h-4" />
+              <span>Sales Pipeline</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowAssetScanner(true)}
+            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-md shadow-blue-600/20 cursor-pointer"
+            title="Scan equipment barcodes or room boundary markers"
+          >
+            <Barcode className="w-4 h-4 text-white" />
+            <span>Scan Asset / Room Tag</span>
+          </button>
+
+          <button
+            onClick={handleOpenQrModal}
+            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
+          >
+            <QrCode className="w-4 h-4" />
+            <span>Generate Client QR Sign</span>
+          </button>
+
+          <button
+            onClick={onNavigateToPortal}
+            className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all border border-slate-700 flex items-center gap-1.5"
+          >
+            <span>Preview Client View</span>
+            <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
+          </button>
+        </div>
+      </div>
+
+      {/* Sub-Tab Navigation Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('scoping')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'scoping'
+                ? 'bg-[#0B192C] text-white shadow-md'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
+            }`}
+          >
+            <Mic className="w-3.5 h-3.5 text-amber-400" />
+            <span>Field Dictation & Photo OCR</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('psychrometrics')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeSubTab === 'psychrometrics'
+                ? 'bg-[#0B192C] text-white shadow-md'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
+            }`}
+          >
+            <ThermometerSnowflake className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Psychrometric & GPP Calculator</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black font-mono bg-emerald-500/20 text-emerald-700 border border-emerald-500/30">
+              {latestLog ? `+${latestLog.grainDepressionDeltaGPP} GPP` : '+28 GPP'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('all')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all items-center gap-2 hidden sm:flex cursor-pointer ${
+              activeSubTab === 'all'
+                ? 'bg-[#0B192C] text-white shadow-md'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 text-blue-400" />
+            <span>All-in-One Field View</span>
+          </button>
+        </div>
+
+        {latestLog && (
+          <div className="hidden md:flex items-center gap-2 text-xs text-slate-500 font-mono pr-2">
+            <span>Day {latestLog.dayNumber}:</span>
+            <span className="font-bold text-slate-800">
+              Chamber {latestLog.affectedGPP} GPP → Dehu {latestLog.dehuOutletGPP} GPP
+            </span>
+            <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+              +{latestLog.grainDepressionDeltaGPP} GPP
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* 1. Field Scoping Grid (Voice, Photo OCR, Saturation Dial, Dimensions, Equipment) */}
+      {(activeSubTab === 'scoping' || activeSubTab === 'all') && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Left Column: Voice Scoping Studio & Quick-Tag Pads */}
+          <div className="lg:col-span-7 space-y-6">
+            {/* 1. Push-to-Talk Voice Scoping Card */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <Mic className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Push-to-Talk Field Dictation
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Speak naturally. Strict anti-calculation rule extracts raw measurements only.
+                  </p>
+                </div>
+              </div>
+
+              {/* Dictation Status */}
+              {isRecording && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-red-600" />
+                  <span>Recording Audio</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Field Presets */}
+            <div className="mb-3">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                Quick Test Field Scenarios:
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleLoadSample(
+                      'Master bathroom is 14 by 10 with 8-foot ceiling. Vanity angle stop burst, clean water Cat 1. Drywall reading 34.5% WME. Need 24-inch flood cut, remove 48 LF baseboard. 4 air movers, 1 dehu for 3 days. Emergency after hours dispatch.'
+                    )
+                  }
+                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
+                >
+                  Bath Supply Line (Cat 1)
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleLoadSample(
+                      'Kitchen is 16 by 12 with 8-foot ceiling. Dishwasher drainage failure, grey water Cat 2. Engineered oak floor cupped at 28% WME. Baseboards removed. 3 air movers, 1 dehumidifier for 3 days.'
+                    )
+                  }
+                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
+                >
+                  Kitchen Dishwasher (Cat 2)
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleLoadSample(
+                      'Exam room is 16 by 12 with 9-foot ceiling. Main sewer backflow Cat 3 black water. Contaminated medical cabinets require double demo multiplier. 48-inch flood cut throughout. 6 air movers, 2 dehumidifiers, 2 HEPA scrubbers for 4 days.'
+                    )
+                  }
+                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
+                >
+                  Sewer Main / Mold (Cat 3)
+                </button>
+              </div>
+            </div>
+
+            {/* Dictation Box */}
+            <div className="relative">
+              <textarea
+                value={transcript}
+                onChange={(e) => setTranscript(e.target.value)}
+                rows={4}
+                placeholder="Tap mic to dictate or type: 'Room is 14 by 10 with 8-foot ceiling. Supply line burst, 34.5% WME in drywall. 24-inch flood cut, 4 air movers, 1 dehu...'"
+                className="w-full p-3.5 text-xs sm:text-sm font-mono border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500 bg-slate-50/50"
+              />
+
+              {/* Push-to-Talk Big Button */}
+              <div className="absolute right-3 bottom-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleRecording}
+                  className={`p-3 rounded-full shadow-md transition-all ${
+                    isRecording
+                      ? 'bg-red-600 text-white scale-110 ring-4 ring-red-200 animate-pulse'
+                      : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                  }`}
+                  title={isRecording ? 'Stop Recording' : 'Start Push-to-Talk'}
+                >
+                  {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Soundwave Animation while recording */}
+            {isRecording && (
+              <div className="mt-3 flex items-center justify-center gap-1 h-6 py-1">
+                {[4, 12, 18, 8, 22, 14, 28, 16, 24, 10, 18, 6].map((h, i) => (
+                  <span
+                    key={i}
+                    className="w-1 bg-red-500 rounded-full animate-bounce"
+                    style={{
+                      height: `${h}px`,
+                      animationDelay: `${i * 0.08}s`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Quick-Tag Action Pads */}
+            <div className="mt-4 pt-3 border-t border-slate-100">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
+                1-Tap Standard Directives:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleAddQuickTag('flood_cut_24')}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors flex items-center gap-1 border border-slate-200"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                  + 24&quot; Flood Cut
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddQuickTag('baseboard')}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors flex items-center gap-1 border border-slate-200"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                  + Remove Baseboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddQuickTag('antimicrobial')}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors flex items-center gap-1 border border-slate-200"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                  + Antimicrobial
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAddQuickTag('equipment_standard')}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors flex items-center gap-1 border border-slate-200"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                  + 4 Fans, 1 Dehu
+                </button>
+              </div>
+            </div>
+
+            {/* Parse Dictation Button */}
+            <div className="mt-5 flex items-center justify-between">
+              <span className="text-[11px] text-slate-500">
+                Calls server-side Gemini 2.5 Flash
+              </span>
+
+              <button
+                type="button"
+                onClick={handleParseScopeWithAI}
+                disabled={isParsingScope || !transcript.trim()}
+                className="px-5 py-2.5 rounded-xl bg-[#0B192C] hover:bg-slate-900 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-md shadow-blue-950/20 disabled:opacity-50 cursor-pointer"
+              >
+                {isParsingScope ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                    <span>Extracting Raw Scope...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    <span>Parse Field Scope</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {parseMessage && (
+              <div className="mt-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>{parseMessage}</span>
+              </div>
+            )}
+          </div>
+
+          {/* 2. Multimodal Photo & Vision OCR Card */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Multimodal Photo & Meter OCR Vision
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Upload damage photo, moisture meter screen, or FLIR thermal display.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isGpsLocating ? (
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 animate-pulse">
+                    <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
+                    <span>Acquiring GPS fix...</span>
+                  </div>
+                ) : job.gpsCoordinates ? (
+                  <div className="flex items-center gap-1.5">
+                    <a
+                      href={
+                        job.gpsCoordinates.mapUrl ||
+                        buildGoogleMapsUrl(job.gpsCoordinates.latitude, job.gpsCoordinates.longitude)
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[11px] font-mono font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-300 transition-colors shadow-2xs"
+                      title="View live job coordinates on Google Maps"
+                    >
+                      <MapPin className="w-3 h-3 text-emerald-600" />
+                      <span>
+                        {job.gpsCoordinates.latitude.toFixed(4)}, {job.gpsCoordinates.longitude.toFixed(4)}
+                      </span>
+                      <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={handleCalibrateGps}
+                      className="p-1 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                      title="Calibrate / Re-ping Browser GPS Satellite Lock"
+                    >
+                      <Crosshair className="w-3.5 h-3.5 text-slate-600" />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {gpsCalibrateMessage && (
+              <div className="mb-3 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] flex items-center justify-between animate-in fade-in">
+                <span>{gpsCalibrateMessage}</span>
+                <a
+                  href={buildGoogleMapsUrl(
+                    job.gpsCoordinates?.latitude || 44.0462,
+                    job.gpsCoordinates?.longitude || -123.022
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-bold text-emerald-700 hover:underline flex items-center gap-1 ml-2"
+                >
+                  <span>Verify on Google Maps</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+            )}
+
+            {/* Category Selector */}
+            <div className="flex gap-2 mb-4">
+              {[
+                ['moisture_meter', 'Moisture Meter OCR'],
+                ['damage', 'Structural Damage'],
+                ['thermal', 'FLIR Thermal Screen'],
+              ].map(([cat, label]) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setPhotoCategory(cat as any)}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all text-center ${
+                    photoCategory === cat
+                      ? 'bg-blue-600 border-blue-600 text-white'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Photo Capture Dropzone */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              capture="environment"
+              onChange={handlePhotoSelect}
+              className="hidden"
+            />
+
+            {!photoPreview ? (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-8 text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-blue-50/30"
+              >
+                <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-700 mx-auto flex items-center justify-center mb-3">
+                  <Camera className="w-6 h-6" />
+                </div>
+                <div className="text-xs font-bold text-slate-800">
+                  Tap to Take Photo or Upload Image
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  GPS coordinates automatically captured and stored into photos array
+                </p>
+                <div className="mt-2 inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono">
+                  <MapPin className="w-3 h-3" />
+                  <span>Google Maps Geolocation Pin Active</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 max-h-72 bg-black flex items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photoPreview}
+                    alt="Inspection preview"
+                    className="max-h-72 w-auto object-contain"
+                  />
+
+                  {/* Floating Geolocation Overlay on Preview */}
+                  <div className="absolute bottom-2 left-2 right-2 bg-slate-950/85 backdrop-blur-xs text-white px-3 py-2 rounded-xl flex items-center justify-between text-xs border border-white/10 shadow-lg">
+                    <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="font-bold">
+                        {job.gpsCoordinates?.latitude.toFixed(5) || '44.04620'},{' '}
+                        {job.gpsCoordinates?.longitude.toFixed(5) || '-123.02200'}
+                      </span>
+                      <span className="text-slate-400 text-[10px]">
+                        (±{Math.round(job.gpsCoordinates?.accuracy || 4)}m)
+                      </span>
+                    </div>
+
+                    <a
+                      href={
+                        job.gpsCoordinates?.mapUrl ||
+                        buildGoogleMapsUrl(
+                          job.gpsCoordinates?.latitude || 44.0462,
+                          job.gpsCoordinates?.longitude || -123.022
+                        )
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition-colors"
+                    >
+                      <MapPin className="w-3 h-3" />
+                      <span>Google Maps</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoPreview(null);
+                      setAnalyzedResult(null);
+                    }}
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAnalyzePhotoWithAI}
+                  disabled={isAnalyzingPhoto}
+                  className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {isAnalyzingPhoto ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Reading Meter Digits & Forensic Evidence...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-emerald-300" />
+                      <span>Inspect with Gemini Multimodal Vision</span>
+                    </>
+                  )}
+                </button>
+
+                {analyzedResult && (
+                  <div className="p-4 rounded-xl bg-blue-50/80 border border-blue-200 text-xs space-y-2">
+                    <div className="flex items-center justify-between font-bold text-blue-900 border-b border-blue-200 pb-1.5">
+                      <span>Forensic Analysis Result</span>
+                      {analyzedResult.meterReading && (
+                        <span className="font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                          {analyzedResult.meterReading}
+                        </span>
+                      )}
+                      {analyzedResult.thermalDelta && (
+                        <span className="font-mono text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
+                          {analyzedResult.thermalDelta}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="font-semibold text-slate-800">Substrate: </span>
+                      <span className="text-slate-700">{analyzedResult.substrate}</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-slate-800">Adjuster Scope: </span>
+                      <span className="text-slate-600">{analyzedResult.technicalDescription}</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-slate-800">Client Summary: </span>
+                      <span className="text-slate-600">{analyzedResult.clientSummary}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 3. Geotagged Photo Evidence Ledger & Google Maps Verification */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 mb-4 gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                  <Map className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span>Geotagged Photo Evidence & Mapping</span>
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-mono font-semibold">
+                      {job.photos.length} photos
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    GPS coordinates captured automatically with Google Maps visualization links.
+                  </p>
+                </div>
+              </div>
+
+              {job.photos.length > 0 && (
+                <a
+                  href={buildGoogleMapsUrl(
+                    job.gpsCoordinates?.latitude || 44.0462,
+                    job.gpsCoordinates?.longitude || -123.022
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200 transition-colors"
+                >
+                  <Compass className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>View All on Google Maps</span>
+                  <ExternalLink className="w-3 h-3 text-emerald-600" />
+                </a>
+              )}
+            </div>
+
+            {/* Photo Cards List */}
+            {job.photos.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+                No photo evidence captured yet. Use the camera above to capture geotagged photos.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {job.photos.map((photo, pIdx) => {
+                  const lat = photo.gps?.latitude ?? job.gpsCoordinates?.latitude ?? 44.0462;
+                  const lng = photo.gps?.longitude ?? job.gpsCoordinates?.longitude ?? -123.022;
+                  const gmapsUrl = photo.gps?.mapUrl || buildGoogleMapsUrl(lat, lng);
+                  const directionsUrl = photo.gps?.directionsUrl || buildGoogleMapsDirectionsUrl(lat, lng);
+                  const satelliteUrl = photo.gps?.satelliteUrl || buildGoogleMapsSatelliteUrl(lat, lng);
+                  const accuracyText = photo.gps?.accuracy ? `±${Math.round(photo.gps.accuracy)}m` : '±4m';
+
+                  return (
+                    <div
+                      key={photo.id || pIdx}
+                      className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-300 transition-all shadow-xs flex flex-col md:flex-row gap-4"
+                    >
+                      {/* Photo Thumbnail */}
+                      <div className="relative w-full md:w-44 h-32 md:h-auto rounded-lg overflow-hidden bg-slate-900 shrink-0 group">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={photo.dataUrl}
+                          alt={photo.caption}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setPreviewEnlargePhoto(photo)}
+                          className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-semibold gap-1"
+                        >
+                          <Maximize2 className="w-4 h-4" />
+                          <span>Enlarge</span>
+                        </button>
+
+                        <div className="absolute top-2 left-2">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                              photo.category === 'moisture_meter'
+                                ? 'bg-red-600 text-white'
+                                : photo.category === 'thermal'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-800/90 text-white'
+                            }`}
+                          >
+                            {photo.category.replace('_', ' ')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Photo Details & Geolocation */}
+                      <div className="flex-1 flex flex-col justify-between space-y-2">
+                        <div>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-900">
+                                {photo.roomName || 'Loss Area'} — {photo.substrate || photo.caption}
+                              </h4>
+                              <p className="text-[11px] text-slate-500">
+                                Recorded at {photo.timestamp || 'Today'}
+                              </p>
+                            </div>
+
+                            {/* Meter reading or thermal badge */}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {photo.meterReading && (
+                                <span className="font-mono text-xs font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
+                                  {photo.meterReading}
+                                </span>
+                              )}
+                              {photo.thermalDelta && (
+                                <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                                  {photo.thermalDelta}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePhoto(photo.id)}
+                                className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                title="Delete Photo"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-slate-600 mt-1 line-clamp-2">
+                            {photo.technicalDescription}
+                          </p>
+                        </div>
+
+                        {/* Dedicated Geolocation Verification Box */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-800">
+                              <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="font-bold">
+                                {lat.toFixed(5)}°, {lng.toFixed(5)}°
+                              </span>
+                              <span className="text-slate-400 font-sans text-[10px]">
+                                ({accuracyText})
+                              </span>
+                            </div>
+
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                              {photo.gps?.source === 'browser_geolocation'
+                                ? 'Live Browser GPS'
+                                : 'Property Site Fix'}
+                            </span>
+                          </div>
+
+                          {/* Google Maps Actions Bar */}
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-200/60">
+                            {/* Primary: View on Google Maps Link */}
+                            <a
+                              href={gmapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#0B192C] hover:bg-slate-900 text-white text-[11px] font-bold transition-all shadow-xs"
+                            >
+                              <MapPin className="w-3 h-3 text-emerald-400" />
+                              <span>View on Google Maps</span>
+                              <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
+                            </a>
+
+                            {/* Secondary: Directions Link */}
+                            <a
+                              href={directionsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 transition-colors"
+                            >
+                              <Navigation className="w-3 h-3 text-blue-600" />
+                              <span>Route</span>
+                            </a>
+
+                            {/* Secondary: Satellite Link */}
+                            <a
+                              href={satelliteUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 transition-colors"
+                            >
+                              <Globe className="w-3 h-3 text-indigo-600" />
+                              <span>Satellite</span>
+                            </a>
+
+                            {/* Map Preview Modal Button */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMapPhoto(photo)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 transition-colors"
+                            >
+                              <Map className="w-3 h-3 text-amber-600" />
+                              <span>Pin Preview</span>
+                            </button>
+
+                            {/* Copy Coordinates Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleCopyCoordinates(photo)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-white hover:bg-slate-100 text-slate-600 text-[11px] border border-slate-200 transition-colors ml-auto"
+                              title="Copy latitude & longitude"
+                            >
+                              {copiedCoordId === photo.id ? (
+                                <>
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-700 font-semibold">Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Live Readings, Moisture Dial, Dimensions & Equipment */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Psychrometric Grain Depression Quick-Card */}
+          <div className="bg-gradient-to-br from-slate-900 to-[#0B192C] text-white rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-md">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-800 mb-3">
+              <div className="flex items-center gap-2">
+                <ThermometerSnowflake className="w-4 h-4 text-emerald-400" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                  Grain Depression (GPP)
+                </h4>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-400/20 text-emerald-300 font-bold border border-emerald-400/30">
+                IICRC S500 §12
+              </span>
+            </div>
+
+            <div className="flex items-baseline justify-between mb-3">
+              <div>
+                <span className="text-3xl font-black font-mono text-emerald-400">
+                  {latestLog ? `+${latestLog.grainDepressionDeltaGPP} GPP` : '+28 GPP'}
+                </span>
+                <span className="text-xs text-slate-400 block mt-0.5">
+                  Dehumidifier Extraction Rate
+                </span>
+              </div>
+              <div className="text-right text-xs font-mono text-slate-300">
+                <div>Intake: {latestLog ? `${latestLog.affectedGPP} GPP` : '82 GPP'}</div>
+                <div>Exhaust: {latestLog ? `${latestLog.dehuOutletGPP} GPP` : '54 GPP'}</div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('psychrometrics')}
+              className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer"
+            >
+              <span>Open Psychrometric Calculator</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* 1. Moisture Level Visual Dial */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <div className="flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-emerald-600" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Moisture Saturation Dial
+                </h4>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">IICRC Standard: 12%</span>
+            </div>
+
+            {/* Visual Gauge Bar */}
+            <div className="space-y-3">
+              {job.moistureReadings.map((reading) => {
+                const pct = Math.min(100, Math.max(0, (reading.readingValue / 50) * 100));
+                const isSaturated = reading.readingValue > 25;
+                const isElevated = reading.readingValue > 16 && reading.readingValue <= 25;
+
+                return (
+                  <div key={reading.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <div className="flex justify-between items-center text-xs mb-1">
+                      <span className="font-bold text-slate-900 truncate">
+                        {reading.substrate}
+                      </span>
+                      <span
+                        className={`font-mono font-black text-sm ${
+                          isSaturated
+                            ? 'text-red-600'
+                            : isElevated
+                            ? 'text-amber-600'
+                            : 'text-emerald-600'
+                        }`}
+                      >
+                        {reading.readingValue} {reading.unit}
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden relative">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isSaturated
+                            ? 'bg-red-500'
+                            : isElevated
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                      <span>Dry &lt;16%</span>
+                      <span>Elevated 16-25%</span>
+                      <span className="text-red-500 font-semibold">Saturated &gt;25%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Extracted Room Dimensions (Strict Raw Extraction) */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-slate-700" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Raw Room Dimensions
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAssetScanner(true)}
+                className="text-[11px] text-blue-700 hover:text-blue-900 font-bold bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Scan room boundary QR label"
+              >
+                <Barcode className="w-3.5 h-3.5" />
+                <span>Scan Room Tag</span>
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              {job.dimensions.map((dim, idx) => (
+                <div
+                  key={idx}
+                  className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs flex items-center justify-between"
+                >
+                  <div>
+                    <div className="font-bold text-slate-900">{dim.roomName}</div>
+                    <div className="text-slate-500 text-[11px]">
+                      {dim.lengthFt}&apos; L × {dim.widthFt}&apos; W × {dim.heightFt}&apos; H ceiling
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {dim.floodCutHeightInches ? (
+                      <span className="inline-block px-2 py-0.5 bg-amber-100 text-amber-900 font-bold rounded text-[11px]">
+                        {dim.floodCutHeightInches}&quot; Flood Cut
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 text-[11px]">No cut</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 3. Confirmed Equipment Deployment */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <div className="flex items-center gap-2">
+                <Wrench className="w-4 h-4 text-slate-700" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Equipment Deployment
+                </h4>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
+                  {job.equipment.dryingDays} Days Cycle
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAssetScanner(true)}
+                  className="text-[11px] text-emerald-800 hover:text-emerald-950 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Scan equipment QR barcode"
+                >
+                  <Barcode className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Scan Asset Tag</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="text-slate-500 text-[11px]">Air Movers (Fans)</div>
+                <div className="text-xl font-black text-slate-900 mt-0.5">
+                  {job.equipment.airMovers}{' '}
+                  <span className="text-xs font-normal text-slate-400">units</span>
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="text-slate-500 text-[11px]">Dehumidifiers (LGR)</div>
+                <div className="text-xl font-black text-slate-900 mt-0.5">
+                  {job.equipment.dehumidifiers}{' '}
+                  <span className="text-xs font-normal text-slate-400">units</span>
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="text-slate-500 text-[11px]">HEPA Air Scrubbers</div>
+                <div className="text-xl font-black text-slate-900 mt-0.5">
+                  {job.equipment.airScrubbers}{' '}
+                  <span className="text-xs font-normal text-slate-400">units</span>
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="text-slate-500 text-[11px]">Drying Days</div>
+                <div className="text-xl font-black text-slate-900 mt-0.5">
+                  {job.equipment.dryingDays}{' '}
+                  <span className="text-xs font-normal text-slate-400">days</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Scanned On-Site Assets Audit Ledger */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <div className="flex items-center gap-2">
+                <Barcode className="w-4 h-4 text-blue-600" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Scanned Asset & Label Audit
+                </h4>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold border border-blue-200">
+                  {job.scannedAssets?.length || 0} Scanned
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAssetScanner(true)}
+                  className="p-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                  title="Open QR scanner"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {(!job.scannedAssets || job.scannedAssets.length === 0) ? (
+              <div className="py-5 text-center text-xs text-slate-500 space-y-2">
+                <p>No equipment barcodes or room tags scanned yet.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowAssetScanner(true)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs transition-colors inline-flex items-center gap-1.5"
+                >
+                  <Barcode className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Open Tag Scanner</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {job.scannedAssets.slice(0, 5).map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-[10px] font-bold ${
+                          asset.tagType === 'equipment'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {asset.tagType === 'equipment' ? 'EQ' : 'RM'}
+                      </div>
+                      <div className="truncate">
+                        <div className="font-semibold text-slate-900 truncate">
+                          {asset.model || asset.roomName || asset.serialNumber}
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono truncate">
+                          {asset.serialNumber ? `SN: ${asset.serialNumber}` : asset.notes}
+                        </div>
+                      </div>
+                    </div>
+
+                    <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                      {asset.scannedAt.split('T')[1]?.slice(0, 5) || 'Today'}
+                    </span>
+                  </div>
+                ))}
+
+                {job.scannedAssets.length > 5 && (
+                  <div className="text-center pt-1 text-[11px] text-slate-500">
+                    + {job.scannedAssets.length - 5} more scanned items in ledger
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      )}
+
+      {/* 2. Full IICRC S500 Psychrometric & Grain Depression Calculator */}
+      {(activeSubTab === 'psychrometrics' || activeSubTab === 'all') && (
+        <div className={activeSubTab === 'all' ? 'pt-6 border-t border-slate-200' : ''}>
+          <PsychrometricCalculator
+            job={job}
+            onUpdateJob={onUpdateJob}
+            onOpenDocSuite={onOpenDocSuite}
+          />
+        </div>
+      )}
+
+      {/* On-Site Client QR Code Signing Modal */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 text-center border border-slate-200">
+            <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 mx-auto flex items-center justify-center mb-3">
+              <QrCode className="w-5 h-5" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">
+              Hold Up For Client To Scan
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Client points their iPhone or Android camera to open their private Work Authorization and sign on their own phone.
+            </p>
+
+            <div className="my-5 p-4 bg-white rounded-2xl border-2 border-slate-900 inline-block shadow-inner">
+              {qrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={qrDataUrl}
+                  alt="Client Signing QR Code"
+                  className="w-56 h-56 mx-auto object-contain"
+                />
+              ) : (
+                <div className="w-56 h-56 flex items-center justify-center text-slate-400">
+                  Generating QR...
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQrModal(false);
+                  onNavigateToPortal();
+                }}
+                className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all"
+              >
+                Open Client Portal Directly
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowQrModal(false)}
+                className="w-full py-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+              >
+                Close QR Code
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Google Maps Visualization Modal */}
+      {selectedMapPhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="bg-[#0B192C] text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Google Maps Photo Geolocation Pin</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                      Verified Field Pin
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {selectedMapPhoto.roomName} • {selectedMapPhoto.substrate || selectedMapPhoto.caption}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMapPhoto(null)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Photo Preview Column */}
+                <div className="space-y-3">
+                  <div className="relative h-48 rounded-xl overflow-hidden bg-slate-950 border border-slate-200">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={selectedMapPhoto.dataUrl}
+                      alt={selectedMapPhoto.caption}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-2 left-2">
+                      <span className="px-2 py-0.5 rounded bg-black/75 text-white text-[10px] font-bold uppercase tracking-wider">
+                        {selectedMapPhoto.category.replace('_', ' ')}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                    <div className="font-bold text-slate-900">{selectedMapPhoto.caption}</div>
+                    {selectedMapPhoto.meterReading && (
+                      <div className="text-red-700 font-bold font-mono">
+                        Meter Reading: {selectedMapPhoto.meterReading}
+                      </div>
+                    )}
+                    {selectedMapPhoto.thermalDelta && (
+                      <div className="text-blue-700 font-bold font-mono">
+                        Thermal Delta: {selectedMapPhoto.thermalDelta}
+                      </div>
+                    )}
+                    <div className="text-slate-500 text-[11px]">
+                      Captured: {selectedMapPhoto.timestamp || 'Today'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Google Maps Embed & Pin Coordinates */}
+                <div className="space-y-3 flex flex-col justify-between">
+                  <div className="h-48 rounded-xl overflow-hidden border border-slate-300 shadow-inner bg-slate-100">
+                    <iframe
+                      title="Google Maps Location Pin"
+                      width="100%"
+                      height="100%"
+                      style={{ border: 0 }}
+                      loading="lazy"
+                      src={
+                        selectedMapPhoto.gps?.embedUrl ||
+                        buildGoogleMapsEmbedUrl(
+                          selectedMapPhoto.gps?.latitude || 44.0462,
+                          selectedMapPhoto.gps?.longitude || -123.022
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">GPS Latitude:</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {selectedMapPhoto.gps?.latitude.toFixed(5) || '44.04620'}°
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">GPS Longitude:</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {selectedMapPhoto.gps?.longitude.toFixed(5) || '-123.02200'}°
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">GPS Accuracy:</span>
+                      <span className="font-mono font-semibold text-emerald-700">
+                        ±{Math.round(selectedMapPhoto.gps?.accuracy || 4)} meters
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">Property Address:</span>
+                      <span className="text-slate-700 text-[11px] truncate max-w-[180px]">
+                        {selectedMapPhoto.gps?.address || job.client.address}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons with Google Maps URLs */}
+              <div className="pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopyCoordinates(selectedMapPhoto)}
+                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  {copiedCoordId === selectedMapPhoto.id ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Copy Coordinates</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href={
+                      selectedMapPhoto.gps?.directionsUrl ||
+                      buildGoogleMapsDirectionsUrl(
+                        selectedMapPhoto.gps?.latitude || 44.0462,
+                        selectedMapPhoto.gps?.longitude || -123.022
+                      )
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold border border-slate-300 transition-colors flex items-center gap-1.5"
+                  >
+                    <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Get Route</span>
+                  </a>
+
+                  <a
+                    href={
+                      selectedMapPhoto.gps?.satelliteUrl ||
+                      buildGoogleMapsSatelliteUrl(
+                        selectedMapPhoto.gps?.latitude || 44.0462,
+                        selectedMapPhoto.gps?.longitude || -123.022
+                      )
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold border border-slate-300 transition-colors flex items-center gap-1.5"
+                  >
+                    <Globe className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Satellite</span>
+                  </a>
+
+                  <a
+                    href={
+                      selectedMapPhoto.gps?.mapUrl ||
+                      buildGoogleMapsUrl(
+                        selectedMapPhoto.gps?.latitude || 44.0462,
+                        selectedMapPhoto.gps?.longitude || -123.022
+                      )
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 rounded-xl bg-[#0B192C] hover:bg-slate-900 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-md shadow-slate-900/20"
+                  >
+                    <MapPin className="w-4 h-4 text-emerald-400" />
+                    <span>Open in Google Maps</span>
+                    <ExternalLink className="w-3 h-3 text-slate-400" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged Photo Modal */}
+      {previewEnlargePhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="relative w-full max-w-3xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+            <div className="bg-[#0B192C] text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-blue-400" />
+                <h4 className="text-sm font-bold text-white">
+                  {previewEnlargePhoto.roomName} — {previewEnlargePhoto.caption}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewEnlargePhoto(null)}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="relative max-h-[60vh] bg-black rounded-2xl overflow-hidden flex items-center justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewEnlargePhoto.dataUrl}
+                  alt={previewEnlargePhoto.caption}
+                  className="max-h-[60vh] w-auto object-contain"
+                />
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="text-xs space-y-1">
+                  <div className="font-bold text-slate-900">
+                    {previewEnlargePhoto.technicalDescription}
+                  </div>
+                  <div className="text-slate-500 font-mono text-[11px] flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3 text-emerald-600" />
+                    <span>
+                      GPS: {previewEnlargePhoto.gps?.latitude.toFixed(5) || '44.04620'},{' '}
+                      {previewEnlargePhoto.gps?.longitude.toFixed(5) || '-123.02200'} (±
+                      {Math.round(previewEnlargePhoto.gps?.accuracy || 4)}m)
+                    </span>
+                  </div>
+                </div>
+
+                <a
+                  href={
+                    previewEnlargePhoto.gps?.mapUrl ||
+                    buildGoogleMapsUrl(
+                      previewEnlargePhoto.gps?.latitude || 44.0462,
+                      previewEnlargePhoto.gps?.longitude || -123.022
+                    )
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center gap-2 shrink-0 shadow-xs"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>View Pin on Google Maps</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Field Asset & Room Tag Scanner Modal */}
+      <QrAssetScannerModal
+        isOpen={showAssetScanner}
+        onClose={() => setShowAssetScanner(false)}
+        job={job}
+        onUpdateJob={onUpdateJob}
+      />
+    </div>
+  );
+}
