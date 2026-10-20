@@ -14,9 +14,11 @@ import {
   Sparkles,
   Navigation,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Droplets,
+  Biohazard
 } from 'lucide-react';
-import { RestorationJob, WaterLossCategory, FinishType } from '@/lib/types';
+import { RestorationJob, WaterLossCategory, FinishType, LossPerilType } from '@/lib/types';
 import { AddressAutocompleteInput } from '@/components/maps/AddressAutocompleteInput';
 import { JobLocationMap } from '@/components/maps/JobLocationMap';
 import { ParsedPlaceDetails, getDirectionsUrl } from '@/lib/maps-config';
@@ -28,6 +30,7 @@ interface NewJobModalProps {
 }
 
 export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) {
+  const [lossType, setLossType] = useState<LossPerilType>('water');
   const [clientName, setClientName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -60,7 +63,10 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
 
     const partialJob: Partial<RestorationJob> = {
       jobId: formattedJobId,
-      category,
+      lossType,
+      category: lossType === 'mold' ? 'Cat 3 (Black / Mold)' : category,
+      moldCondition: lossType === 'mold' ? 'Condition 3 (Active Microbial Growth)' : undefined,
+      containmentRequired: lossType === 'mold',
       finishType,
       client: {
         name: clientName.trim() || 'New Client Property',
@@ -279,31 +285,85 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
             </div>
           </div>
 
-          {/* Section 3: Water Loss Categorization */}
-          <div className="bg-slate-800/40 p-4 sm:p-5 rounded-xl border border-slate-700/60 space-y-3">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-              <Shield className="w-4 h-4 text-amber-400" />
-              <span>IICRC Loss Classification</span>
+          {/* Section 3: Primary Loss Peril (Water vs. Mold) & IICRC Classification */}
+          <div className="bg-slate-800/40 p-4 sm:p-5 rounded-xl border border-slate-700/60 space-y-4">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5 mb-2">
+                <Shield className="w-4 h-4 text-amber-400" />
+                <span>Primary Loss Peril (IICRC S500 vs. S520)</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLossType('water');
+                    setCategory('Cat 1 (Clean)');
+                  }}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                    lossType === 'water'
+                      ? 'bg-sky-600 border-sky-400 text-white shadow-md'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <Droplets className="w-4 h-4 text-sky-400" />
+                  <span>Water Damage (S500)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLossType('mold');
+                    setCategory('Cat 3 (Black / Mold)');
+                  }}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                    lossType === 'mold'
+                      ? 'bg-rose-600 border-rose-400 text-white shadow-md'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <Biohazard className="w-4 h-4 text-rose-300" />
+                  <span>Mold Remediation (S520)</span>
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              {(['Cat 1 (Clean)', 'Cat 2 (Gray)', 'Cat 3 (Black)'] as WaterLossCategory[]).map(
-                (cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setCategory(cat)}
-                    className={`py-2 px-3 rounded-lg text-xs font-semibold border transition text-center ${
-                      category === cat
-                        ? 'bg-sky-600 border-sky-400 text-white shadow-md'
-                        : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                )
-              )}
-            </div>
+            {lossType === 'water' ? (
+              <div className="pt-2 border-t border-slate-800">
+                <label className="block text-[11px] text-slate-400 mb-1.5">
+                  Water Loss Classification (IICRC S500)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Cat 1 (Clean)', 'Cat 2 (Gray)', 'Cat 3 (Black)'] as WaterLossCategory[]).map(
+                    (cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setCategory(cat)}
+                        className={`py-1.5 px-2.5 rounded-lg text-xs font-semibold border transition text-center ${
+                          category === cat
+                            ? 'bg-sky-950 border-sky-400 text-sky-200'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="pt-2 border-t border-slate-800 text-xs space-y-1.5">
+                <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <Biohazard className="w-3.5 h-3.5 text-rose-400" />
+                    <span>IICRC S520 Condition 3 Microbial Protocol Active</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mt-1">
+                    Critical containment barrier with negative pressure and HEPA air scrubbing required.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Modal Footer Actions */}

@@ -63,6 +63,7 @@ import {
 import { AddressAutocompleteInput } from '@/components/maps/AddressAutocompleteInput';
 import { JobLocationMap } from '@/components/maps/JobLocationMap';
 import { ParsedPlaceDetails, getDirectionsUrl } from '@/lib/maps-config';
+import { GeminiLiveScopingBar } from '@/components/voice/GeminiLiveScopingBar';
 
 interface TechFieldDashboardProps {
   job: RestorationJob;
@@ -2088,6 +2089,13 @@ export function TechFieldDashboard({
         onClose={() => setShowAssetScanner(false)}
         job={job}
         onUpdateJob={onUpdateJob}
+      />
+
+      {/* Floating Gemini Live Real-Time Conversational Scoping Dock */}
+      <GeminiLiveScopingBar
+        job={job}
+        onUpdateJob={onUpdateJob}
+        onOpenAssetScanner={() => setShowAssetScanner(true)}
       />
     </div>
   );
