@@ -9,6 +9,7 @@ import {
   Upload,
   Sparkles,
   MapPin,
+  Search,
   CheckCircle2,
   AlertTriangle,
   Flame,
@@ -59,6 +60,9 @@ import {
   buildGoogleMapsEmbedUrl,
   formatCoordinatesDMS,
 } from '@/hooks/usePhotoGeolocation';
+import { AddressAutocompleteInput } from '@/components/maps/AddressAutocompleteInput';
+import { JobLocationMap } from '@/components/maps/JobLocationMap';
+import { ParsedPlaceDetails, getDirectionsUrl } from '@/lib/maps-config';
 
 interface TechFieldDashboardProps {
   job: RestorationJob;
@@ -112,6 +116,60 @@ export function TechFieldDashboard({
   // Asset & Room Tag Scanner Modal State
   const [showAssetScanner, setShowAssetScanner] = useState(false);
 
+  // Google Maps address autocomplete and property map state
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [tempAddress, setTempAddress] = useState(job.client.address);
+  const [prevJobAddress, setPrevJobAddress] = useState(job.client.address);
+  if (job.client.address !== prevJobAddress) {
+    setPrevJobAddress(job.client.address);
+    setTempAddress(job.client.address);
+  }
+  const handleParseScopeWithAIRef = useRef<((isAutoHandsFree?: boolean, overrideTranscript?: string) => Promise<void>) | null>(null);
+
+  const handleAddressSelected = (details: ParsedPlaceDetails) => {
+    const updatedJob: RestorationJob = {
+      ...job,
+      client: {
+        ...job.client,
+        address: details.streetAddress || details.formattedAddress,
+        cityStateZip: details.cityStateZip || job.client.cityStateZip,
+      },
+      gpsCoordinates: {
+        latitude: details.lat,
+        longitude: details.lng,
+        address: details.formattedAddress,
+        accuracy: 5,
+        mapUrl: getDirectionsUrl(details.lat, details.lng, details.formattedAddress),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdateJob(updatedJob);
+    setIsEditingAddress(false);
+    setGpsCalibrateMessage(
+      `✓ Address synced with Google Maps: ${details.formattedAddress}`
+    );
+    setTimeout(() => setGpsCalibrateMessage(null), 4000);
+  };
+
+  const handleRecalibrateMapGps = (coords: { latitude: number; longitude: number; accuracy?: number }) => {
+    const updatedJob: RestorationJob = {
+      ...job,
+      gpsCoordinates: {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        address: job.client.address,
+        accuracy: coords.accuracy || 5,
+        mapUrl: getDirectionsUrl(coords.latitude, coords.longitude, job.client.address),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdateJob(updatedJob);
+    setGpsCalibrateMessage(
+      `✓ GPS Calibrated: ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)} (±${Math.round(coords.accuracy || 5)}m)`
+    );
+    setTimeout(() => setGpsCalibrateMessage(null), 4000);
+  };
+
   // Speech recognition fallback
   const recognitionRef = useRef<any>(null);
 
@@ -135,7 +193,7 @@ export function TechFieldDashboard({
           if (isHandsFreeRef.current && trimmed.length > 10) {
             if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = setTimeout(() => {
-              handleParseScopeWithAI(true, trimmed);
+              handleParseScopeWithAIRef.current?.(true, trimmed);
             }, 2200);
           }
         };
@@ -293,6 +351,10 @@ export function TechFieldDashboard({
       setIsParsingScope(false);
     }
   };
+
+  useEffect(() => {
+    handleParseScopeWithAIRef.current = handleParseScopeWithAI;
+  });
 
   // Photo file selection & automatic GPS capture via usePhotoGeolocation hook
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -603,6 +665,85 @@ export function TechFieldDashboard({
         </div>
       </div>
 
+      {/* Google Maps Connected Property Location Card */}
+      <div className="bg-[#0B192C] text-white rounded-2xl border border-slate-800 shadow-xl p-5 overflow-hidden">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center shrink-0 mt-0.5">
+              <MapPin className="w-5 h-5 text-sky-400" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300 bg-sky-950/80 px-2 py-0.5 rounded border border-sky-800">
+                  Google Maps Connected
+                </span>
+                {job.gpsCoordinates && (
+                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-800/60">
+                    GPS: {job.gpsCoordinates.latitude.toFixed(4)}, {job.gpsCoordinates.longitude.toFixed(4)}
+                  </span>
+                )}
+                {job.photos.filter(p => p.gps?.latitude).length > 0 && (
+                  <span className="text-[10px] font-mono text-amber-300 bg-amber-950/50 px-2 py-0.5 rounded border border-amber-800/60">
+                    {job.photos.filter(p => p.gps?.latitude).length} Geotagged Pins
+                  </span>
+                )}
+              </div>
+              <h3 className="text-base font-bold text-white mt-1">
+                {job.client.address || 'Property Address'}
+                {job.client.cityStateZip ? `, ${job.client.cityStateZip}` : ''}
+              </h3>
+              <p className="text-xs text-slate-300">
+                Client: <span className="font-semibold text-white">{job.client.name}</span> • Phone: {job.client.phone} • Policy: {job.client.policyNumber}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end lg:self-auto">
+            <button
+              type="button"
+              onClick={() => setIsEditingAddress(!isEditingAddress)}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Search className="w-3.5 h-3.5 text-sky-400" />
+              <span>{isEditingAddress ? 'Close Address Search' : 'Lookup / Autocomplete Address'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Address Autocomplete Search Drawer */}
+        {isEditingAddress && (
+          <div className="mt-4 p-4 rounded-xl bg-slate-950/90 border border-sky-500/40 space-y-2 animate-in fade-in">
+            <label className="block text-xs font-bold text-sky-300 flex items-center gap-1.5">
+              <Search className="w-3.5 h-3.5" />
+              <span>Search Client Property with Google Places Autocomplete:</span>
+            </label>
+            <AddressAutocompleteInput
+              value={tempAddress}
+              onChange={setTempAddress}
+              onAddressSelect={handleAddressSelected}
+              placeholder="Search property address (e.g. 1450 River Rd, Eugene OR)..."
+              autoFocus
+            />
+            <p className="text-[11px] text-slate-400">
+              Selecting a place updates the client street, city, state, zip code, and real GPS coordinates across the entire job and all insurance documents.
+            </p>
+          </div>
+        )}
+
+        {/* Live Interactive Google Map with Property & Geotagged Photo Pins */}
+        <div className="mt-4">
+          <JobLocationMap
+            latitude={job.gpsCoordinates?.latitude || 44.0462}
+            longitude={job.gpsCoordinates?.longitude || -123.022}
+            address={job.client.address}
+            accuracy={job.gpsCoordinates?.accuracy || 5}
+            photos={job.photos}
+            onRecalibrateGps={handleRecalibrateMapGps}
+            height="260px"
+          />
+        </div>
+      </div>
+
       {/* Sub-Tab Navigation Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-xs">
         <div className="flex flex-wrap items-center gap-2">
@@ -852,7 +993,7 @@ export function TechFieldDashboard({
 
               <button
                 type="button"
-                onClick={handleParseScopeWithAI}
+                onClick={() => handleParseScopeWithAI()}
                 disabled={isParsingScope || !transcript.trim()}
                 className="px-5 py-2.5 rounded-xl bg-[#0B192C] hover:bg-slate-900 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-md shadow-blue-950/20 disabled:opacity-50 cursor-pointer"
               >
@@ -1758,20 +1899,14 @@ export function TechFieldDashboard({
 
                 {/* Google Maps Embed & Pin Coordinates */}
                 <div className="space-y-3 flex flex-col justify-between">
-                  <div className="h-48 rounded-xl overflow-hidden border border-slate-300 shadow-inner bg-slate-100">
-                    <iframe
-                      title="Google Maps Location Pin"
-                      width="100%"
-                      height="100%"
-                      style={{ border: 0 }}
-                      loading="lazy"
-                      src={
-                        selectedMapPhoto.gps?.embedUrl ||
-                        buildGoogleMapsEmbedUrl(
-                          selectedMapPhoto.gps?.latitude || 44.0462,
-                          selectedMapPhoto.gps?.longitude || -123.022
-                        )
-                      }
+                  <div className="rounded-xl overflow-hidden border border-slate-300 shadow-inner bg-slate-100">
+                    <JobLocationMap
+                      latitude={selectedMapPhoto.gps?.latitude || job.gpsCoordinates?.latitude || 44.0462}
+                      longitude={selectedMapPhoto.gps?.longitude || job.gpsCoordinates?.longitude || -123.022}
+                      address={selectedMapPhoto.gps?.address || job.client.address}
+                      accuracy={selectedMapPhoto.gps?.accuracy || 4}
+                      height="192px"
+                      showPhotoMarkers={false}
                     />
                   </div>
 

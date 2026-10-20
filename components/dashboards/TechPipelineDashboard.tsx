@@ -22,13 +22,14 @@ import {
   Building,
   User,
 } from 'lucide-react';
+import { NewJobModal } from './NewJobModal';
 
 interface TechPipelineDashboardProps {
   jobs: RestorationJob[];
   activeJob: RestorationJob;
   onSelectJob: (job: RestorationJob) => void;
   onOpenScopingWorkspace: (job?: RestorationJob) => void;
-  onCreateNewEstimate: () => void;
+  onCreateNewEstimate: (customJob?: Partial<RestorationJob>) => void;
   onNavigateToPortal: () => void;
 }
 
@@ -42,6 +43,7 @@ export function TechPipelineDashboard({
 }: TechPipelineDashboardProps) {
   const [filterTab, setFilterTab] = useState<'all' | 'in_progress' | 'review' | 'authorized' | 'completed'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isNewJobModalOpen, setIsNewJobModalOpen] = useState(false);
 
   // Non-archived jobs for technician
   const activeJobs = jobs.filter((j) => !j.isArchived);
@@ -100,8 +102,8 @@ export function TechPipelineDashboard({
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={onCreateNewEstimate}
-            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+            onClick={() => setIsNewJobModalOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-emerald-500/20 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>New Field Estimate</span>
@@ -321,6 +323,13 @@ export function TechPipelineDashboard({
           )}
         </div>
       </div>
+
+      {/* New Job Intake & Address Autocomplete Modal */}
+      <NewJobModal
+        isOpen={isNewJobModalOpen}
+        onClose={() => setIsNewJobModalOpen(false)}
+        onCreateJob={(custom) => onCreateNewEstimate(custom)}
+      />
     </div>
   );
 }
