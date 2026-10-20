@@ -177,10 +177,11 @@ export function parseAndApplyQrAssetTag(
     }
   }
 
-  // 2. URI Schemes: adr://eq/... or adr://rm/... or URL query
-  if (trimmed.startsWith('adr://') || trimmed.includes('/asset?')) {
+  // 2. URI Schemes: dryscope://eq/..., ds://eq/..., or URL query
+  if (trimmed.startsWith('dryscope://') || trimmed.startsWith('ds://') || trimmed.includes('/asset?')) {
     try {
-      const url = new URL(trimmed.startsWith('adr://') ? trimmed.replace('adr://', 'http://dummy.io/') : trimmed);
+      const normalizedScheme = trimmed.replace(/^(dryscope|ds):\/\//, 'http://dummy.io/');
+      const url = new URL(normalizedScheme);
       const pathname = url.pathname.toLowerCase();
 
       // Equipment URI

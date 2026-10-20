@@ -17,8 +17,8 @@ import {
 export function SuperadminDashboard() {
   const tenants = [
     {
-      name: 'Alert Disaster Restoration (ADR)',
-      slug: 'adr-corp',
+      name: 'DryScope Disaster Restoration (HQ)',
+      slug: 'dryscope-corp',
       owner: 'Brett Montgomery',
       users: 18,
       plan: 'Enterprise Dedicated',
@@ -52,7 +52,7 @@ export function SuperadminDashboard() {
     {
       id: 'evt-1',
       action: 'WORK_AUTH_SIGNED',
-      company: 'Alert Disaster Restoration',
+      company: 'DryScope Disaster Restoration',
       user: 'Dr. Arthur Sterling',
       ip: '198.51.100.24',
       time: '12 mins ago',
@@ -61,7 +61,7 @@ export function SuperadminDashboard() {
     {
       id: 'evt-2',
       action: 'OCR_METER_READING_EXTRACTED',
-      company: 'Alert Disaster Restoration',
+      company: 'DryScope Disaster Restoration',
       user: 'Nate Norman (Tech)',
       ip: '172.56.21.8',
       time: '28 mins ago',

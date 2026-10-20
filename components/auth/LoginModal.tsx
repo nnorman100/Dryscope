@@ -61,7 +61,7 @@ export function LoginModal({
         email: emailInput,
         role: selectedRoleTab,
         title: `${selectedRoleTab.replace('_', ' ').toUpperCase()}`,
-        companyName: 'Alert Disaster Restoration',
+        companyName: 'DryScope Restoration Services',
       });
     }
     onClose();
@@ -209,7 +209,7 @@ export function LoginModal({
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   required
-                  placeholder="name@alertdisaster.com"
+                  placeholder="name@dryscope.io"
                   className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
                 />
               </div>

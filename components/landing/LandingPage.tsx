@@ -497,7 +497,7 @@ export function LandingPage({ onNavigate, onOpenLogin }: LandingPageProps) {
                 <span className="text-emerald-600 transition-transform group-open:rotate-90">›</span>
               </summary>
               <div className="mt-3 text-xs text-slate-600 leading-relaxed pl-2 border-l-2 border-emerald-500">
-                The baseline charge consists of 4 line items verified from the ADR workbook: Emergency Trip Call ($133.95), Monitoring Allowance (13.25 hours @ $47.46/hr = $628.85), Haul Load ($159.53), and HEPA Filter ($183.12). These total exactly $1,180.20 after cent rounding.
+                The baseline charge consists of 4 line items verified from the estimating matrix workbook: Emergency Trip Call ($133.95), Monitoring Allowance (13.25 hours @ $47.46/hr = $628.85), Haul Load ($159.53), and HEPA Filter ($183.12). These total exactly $1,180.20 after cent rounding.
               </div>
             </details>
 
@@ -513,11 +513,11 @@ export function LandingPage({ onNavigate, onOpenLogin }: LandingPageProps) {
 
             <details className="group bg-white p-5 rounded-xl border border-slate-200 open:ring-1 open:ring-emerald-500 transition-all">
               <summary className="font-bold text-sm text-slate-900 cursor-pointer list-none flex items-center justify-between">
-                <span>What deliverables are included in the ADR 4-Document Suite?</span>
+                <span>What deliverables are included in the 4-Document Suite?</span>
                 <span className="text-emerald-600 transition-transform group-open:rotate-90">›</span>
               </summary>
               <div className="mt-3 text-xs text-slate-600 leading-relaxed pl-2 border-l-2 border-emerald-500">
-                The 4-Document Suite includes: (1) Homeowner Work Authorization & Proposal with legal emergency dryout agreement, (2) Itemized Insurance Adjuster Scope with raw room dimensions and ADR unit codes, (3) Adjuster Scope Defense Letter citing IICRC S500/S520 standards, and (4) Moisture Reading & Thermal Log with drying chamber records.
+                The 4-Document Suite includes: (1) Homeowner Work Authorization & Proposal with legal emergency dryout agreement, (2) Itemized Insurance Adjuster Scope with raw room dimensions and unit pricing codes, (3) Adjuster Scope Defense Letter citing IICRC S500/S520 standards, and (4) Moisture Reading & Thermal Log with drying chamber records.
               </div>
             </details>
           </div>
@@ -534,7 +534,7 @@ export function LandingPage({ onNavigate, onOpenLogin }: LandingPageProps) {
             <div>
               <p className="text-white font-bold text-sm">DryScope Platform</p>
               <p className="text-[11px] text-slate-500">
-                Alert Disaster Restoration (ADR) • IICRC Certified Mitigation
+                IICRC Certified Mitigation & Structural Drying Scoping
               </p>
             </div>
           </div>
@@ -573,7 +573,7 @@ export function LandingPage({ onNavigate, onOpenLogin }: LandingPageProps) {
           </div>
 
           <div className="text-[11px] text-slate-500">
-            © 2026 Alert Disaster Restoration. All rights reserved.
+            © 2026 DryScope. All rights reserved.
           </div>
         </div>
       </footer>

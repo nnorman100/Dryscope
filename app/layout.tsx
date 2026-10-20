@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     'restoration client portal',
     'work authorization digital signature',
   ],
-  authors: [{ name: 'DryScope / Alert Disaster Restoration' }],
+  authors: [{ name: 'DryScope Disaster Restoration Platform' }],
   openGraph: {
     title: 'DryScope – Disaster Mitigation & Restoration Scoping Platform',
     description:
@@ -59,7 +59,7 @@ const structuredData = {
     },
     {
       '@type': 'EmergencyService',
-      'name': 'Alert Disaster Restoration Services (ADR)',
+      'name': 'DryScope Certified Mitigation Services',
       'serviceType': 'Water, Fire, and Mold Damage Mitigation',
       'areaServed': 'United States',
       'availableLanguage': 'English',

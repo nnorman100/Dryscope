@@ -39,31 +39,35 @@ export async function POST(req: NextRequest) {
 
     const systemInstruction = `You are an expert field scoping and forensic inspection assistant for disaster restoration (Water, Fire, Mold).
 Inspect the attached field photo evidence. This may be:
-- Direct structural damage (wet drywall, cupped hardwood, sewage backflow, mold growth)
-- A moisture meter digital/analog display (e.g. Protimeter, Tramex, Delmhorst)
-- A thermal imaging camera display (e.g. FLIR screen with temperature spots and thermal gradients)
+- Direct structural damage (wet drywall, water stains, mold colonies, damaged baseboards, cupped hardwood flooring)
+- A moisture meter digital/analog display (e.g. Protimeter, Tramex, Delmhorst, Extech, reading e.g. "32% WME")
+- A thermal imaging camera screen (e.g. FLIR, Seek, showing thermal gradients and cold boundary deltas)
 
 Strict rules:
-1. NEVER calculate dollar amounts, areas, or costs.
-2. Read exact numeric digits if a meter or thermal display is visible.
-3. Provide both:
+1. NEVER calculate dollar amounts, areas, square footage, or costs. Only extract raw dimensions, materials, and directives.
+2. If a moisture meter display is visible, read the exact numeric value (e.g. 32) and substrate.
+3. If a thermal camera display is visible, extract the temperature delta (e.g. -6.4) and describe the boundary.
+4. Standardize any recommended action strictly to: "FLOOD_CUT", "REMOVE_BASEBOARD", "REMOVE_FLOORING", "EXTRACT_WATER", "DEPLOY_EQUIPMENT", "HEPA_VACUUM", "APPLY_ANTIMICROBIAL".
+5. Provide both:
    a) technicalDescription: rigorous forensic description for insurance adjusters using IICRC S500/S520 language.
    b) clientSummary: clear, reassuring, layman explanation for the homeowner without alarming jargon.
-4. Identify primary substrate (e.g., Drywall, Oak Hardwood, Ceramic Grout, Concrete, OSB Subfloor).
 
 Return strictly valid JSON matching:
 {
   "category": "damage" | "moisture_meter" | "thermal" | "containment",
   "substrate": string,
   "meterReading": string | null,
+  "numericReadingValue": number | null,
   "thermalDelta": string | null,
+  "numericDeltaT": number | null,
+  "perimeterBoundaryDesc": string | null,
   "technicalDescription": string,
   "clientSummary": string,
-  "actionRecommended": string
+  "standardAction": "FLOOD_CUT" | "REMOVE_BASEBOARD" | "REMOVE_FLOORING" | "EXTRACT_WATER" | "DEPLOY_EQUIPMENT" | "HEPA_VACUUM" | "APPLY_ANTIMICROBIAL" | null
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-flash-latest',
       contents: [
         {
           role: 'user',
@@ -92,7 +96,7 @@ Return strictly valid JSON matching:
     return NextResponse.json({
       success: true,
       data: parsed,
-      source: 'gemini-2.5-flash',
+      source: 'gemini-flash-latest',
     });
   } catch (error: any) {
     console.error('Error in /api/analyze-photo:', error);

@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "job": {
+      "title": "RestorationJob",
+      "description": "Disaster mitigation and restoration job containing field dimensions, equipment, moisture logs, photos, and authorizations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "jobId": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["Draft", "Ready for Review", "Client Authorized", "In Progress", "Completed", "Archived"]
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Cat 1 (Clean)", "Cat 2 (Grey)", "Cat 3 (Black / Mold)"]
+        },
+        "finishType": {
+          "type": "string",
+          "enum": ["Unfinished", "Finished"]
+        },
+        "cabinetryMultiplier": { "type": "boolean" },
+        "afterHours": { "type": "boolean" },
+        "technicianNotes": { "type": "string" },
+        "rawTranscript": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "assignedTechId": { "type": "string" }
+      },
+      "required": ["id", "jobId", "status", "category", "createdAt"]
+    },
+    "user": {
+      "title": "UserAccount",
+      "description": "User profile with role-based permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": ["superadmin", "owner", "office_staff", "sales_technician", "client"]
+        },
+        "companyName": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/jobs/{jobId}": {
+      "schema": "job",
+      "description": "Restoration jobs scoped by field technicians and managed by office estimators"
+    },
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "Registered company technicians and staff"
+    }
+  }
+}

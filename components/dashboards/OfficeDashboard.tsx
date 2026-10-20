@@ -123,7 +123,7 @@ export function OfficeDashboard({
             className="px-4 py-2.5 rounded-xl bg-[#0B192C] hover:bg-slate-900 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-blue-950/20"
           >
             <Printer className="w-3.5 h-3.5 text-emerald-400" />
-            <span>ADR 4-Doc Suite</span>
+            <span>DryScope 4-Doc Suite</span>
           </button>
         </div>
       </div>

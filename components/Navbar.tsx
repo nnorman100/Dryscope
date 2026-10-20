@@ -30,6 +30,7 @@ interface NavbarProps {
   onOpenDocSuite: () => void;
   currentView: string;
   onChangeView: (view: string) => void;
+  isCloudConnected?: boolean;
 }
 
 export function Navbar({
@@ -42,6 +43,7 @@ export function Navbar({
   onOpenDocSuite,
   currentView,
   onChangeView,
+  isCloudConnected = true,
 }: NavbarProps) {
   const getRoleBadge = (role: UserRole) => {
     switch (role) {
@@ -147,7 +149,7 @@ export function Navbar({
                 </span>
               </div>
               <p className="text-[10px] text-slate-500 hidden sm:block">
-                Alert Disaster Restoration Platform
+                Disaster Mitigation & Field Scoping Platform
               </p>
             </div>
           </button>
@@ -235,6 +237,23 @@ export function Navbar({
 
         {/* Right side controls */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Cloud Sync Status Indicator */}
+          <div
+            className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+              isCloudConnected
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}
+            title={isCloudConnected ? 'Connected to Firebase Firestore Cloud' : 'Local Offline Cache Mode'}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isCloudConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+              }`}
+            />
+            <span>{isCloudConnected ? 'Cloud Synced' : 'Offline Mode'}</span>
+          </div>
+
           {/* Active Job Selector */}
           <div className="relative hidden md:block">
             <select
@@ -259,7 +278,7 @@ export function Navbar({
           <button
             onClick={onOpenDocSuite}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors border border-slate-200 shadow-2xs"
-            title="Generate ADR 4-Document Suite and PDF Printout"
+            title="Generate Official 4-Document Suite and PDF Printout"
           >
             <Printer className="w-3.5 h-3.5 text-slate-600" />
             <span className="hidden sm:inline">4-Doc Suite / PDF</span>
