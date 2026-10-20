@@ -87,7 +87,7 @@ Return ONLY valid JSON matching this schema:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-flash-latest',
       contents: [
         {
           role: 'user',
@@ -111,7 +111,7 @@ Return ONLY valid JSON matching this schema:
     return NextResponse.json({
       success: true,
       data: parsedData,
-      source: 'gemini-2.5-flash',
+      source: 'gemini-flash-latest',
     });
   } catch (error: any) {
     console.error('Error in /api/scope:', error);

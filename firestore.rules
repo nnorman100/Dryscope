@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper to validate clean document ID
+    function isValidId(docId) {
+      return docId is string && docId.size() > 0 && docId.size() <= 128;
+    }
+
+    // User accounts collection
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && (request.auth.uid == userId || request.auth.token.role == 'superadmin');
+    }
+
+    // Restoration jobs collection
+    match /jobs/{jobId} {
+      allow read: if true; // Publicly readable for client signing portal & field technicians
+      allow create, update: if isValidId(jobId);
+      allow delete: if request.auth != null;
+    }
+
+    // System connection test doc
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

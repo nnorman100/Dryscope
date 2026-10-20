@@ -14,30 +14,30 @@ export const DEMO_USERS: UserAccount[] = [
   {
     id: 'user-owner',
     name: 'Brett Montgomery',
-    email: 'owner@alertdisaster.com',
+    email: 'owner@dryscope.com',
     role: 'owner',
     title: 'President & Managing Partner',
-    companyName: 'Alert Disaster Restoration (ADR)',
+    companyName: 'DryScope Restoration Services',
     phone: '(555) 234-8901',
     avatarColor: 'bg-blue-700',
   },
   {
     id: 'user-office',
     name: 'Courtney Jenkins',
-    email: 'office@alertdisaster.com',
+    email: 'office@dryscope.com',
     role: 'office_staff',
     title: 'Senior Claims Coordinator & Estimator',
-    companyName: 'Alert Disaster Restoration (ADR)',
+    companyName: 'DryScope Restoration Services',
     phone: '(555) 234-8902',
     avatarColor: 'bg-emerald-600',
   },
   {
     id: 'user-tech',
     name: 'Nate Norman',
-    email: 'tech.nate@alertdisaster.com',
+    email: 'tech.nate@dryscope.com',
     role: 'sales_technician',
     title: 'Senior Field Restoration Technician',
-    companyName: 'Alert Disaster Restoration (ADR)',
+    companyName: 'DryScope Restoration Services',
     phone: '(555) 789-4321',
     avatarColor: 'bg-amber-600',
   },
@@ -57,7 +57,7 @@ export const INITIAL_JOBS: RestorationJob[] = [
   // 1. Active Job 1: Smith Residence (Master Bath Supply Line Cat 1)
   {
     id: 'job-1',
-    jobId: 'ADR-2026-0842',
+    jobId: 'DS-2026-0842',
     status: 'Ready for Review',
     isArchived: false,
     category: 'Cat 1 (Clean)',
@@ -314,7 +314,7 @@ export const INITIAL_JOBS: RestorationJob[] = [
   // 2. Active Job 2: Oakridge Medical Suites (Cat 3 Sewer Backflow & Mold)
   {
     id: 'job-2',
-    jobId: 'ADR-2026-0791',
+    jobId: 'DS-2026-0791',
     status: 'Client Authorized',
     isArchived: false,
     category: 'Cat 3 (Black / Mold)',
@@ -442,7 +442,7 @@ export const INITIAL_JOBS: RestorationJob[] = [
   // 3. Active Job 3: Harrison Townhouse (Kitchen Dishwasher Cat 2 Grey Water)
   {
     id: 'job-3',
-    jobId: 'ADR-2026-0915',
+    jobId: 'DS-2026-0915',
     status: 'In Progress',
     isArchived: false,
     category: 'Cat 2 (Grey)',
@@ -537,7 +537,7 @@ export const INITIAL_JOBS: RestorationJob[] = [
   // 4. HISTORICAL ARCHIVED ESTIMATE 1: Miller Residence (Winter Freeze Cat 1)
   {
     id: 'archived-1',
-    jobId: 'ADR-2025-0412',
+    jobId: 'DS-2025-0412',
     status: 'Archived',
     isArchived: true,
     archivedAt: '2025-02-18T16:00:00Z',
@@ -633,7 +633,7 @@ export const INITIAL_JOBS: RestorationJob[] = [
   // 5. HISTORICAL ARCHIVED ESTIMATE 2: Cascade Commercial Plaza (Cat 3 Sewer)
   {
     id: 'archived-2',
-    jobId: 'ADR-2025-0899',
+    jobId: 'DS-2025-0899',
     status: 'Archived',
     isArchived: true,
     archivedAt: '2025-07-22T14:00:00Z',

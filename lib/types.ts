@@ -140,7 +140,7 @@ export interface DigitalSignature {
 
 export interface RestorationJob {
   id: string;
-  jobId: string; // e.g. 'ADR-2026-0842'
+  jobId: string; // e.g. 'DS-2026-0842'
   status:
     | 'Draft'
     | 'Ready for Review'

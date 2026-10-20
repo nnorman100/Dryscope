@@ -124,7 +124,7 @@ export function ClientPortal({
               Emergency Action Plan & Work Authorization
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl">
-              Prepared by Alert Disaster Restoration for{' '}
+              Prepared by DryScope Restoration for{' '}
               <span className="font-bold text-white">{job.client.name}</span> at{' '}
               <span className="text-emerald-300">{job.client.address}</span>.
             </p>
@@ -284,13 +284,13 @@ export function ClientPortal({
             AUTHORIZATION TO COMMENCE EMERGENCY MITIGATION WORK:
           </p>
           <p className="mb-2">
-            The undersigned property owner/authorized representative hereby engages Alert Disaster Restoration (ADR) to furnish all necessary labor, equipment, and materials to stabilize and dry the property located at {job.client.address}.
+            The undersigned property owner/authorized representative hereby engages DryScope Restoration to furnish all necessary labor, equipment, and materials to stabilize and dry the property located at {job.client.address}.
           </p>
           <p className="font-bold text-slate-900 mb-1">
             DIRECT PAYMENT & ASSIGNMENT OF INSURANCE BENEFITS:
           </p>
           <p className="mb-2">
-            Owner authorizes {job.client.insuranceCarrier} to pay ADR directly for all covered mitigation, moisture extraction, and structural drying services up to the limit of coverage. Owner remains responsible only for the policy deductible (${job.client.deductible.toFixed(2)}) and any non-covered exclusions.
+            Owner authorizes {job.client.insuranceCarrier} to pay DryScope Restoration directly for all covered mitigation, moisture extraction, and structural drying services up to the limit of coverage. Owner remains responsible only for the policy deductible (${job.client.deductible.toFixed(2)}) and any non-covered exclusions.
           </p>
           <p className="font-bold text-slate-900 mb-1">
             EMERGENCY MITIGATION WAIVER OF RESCISSION:

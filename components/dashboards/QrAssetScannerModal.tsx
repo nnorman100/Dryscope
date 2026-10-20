@@ -45,6 +45,7 @@ export function QrAssetScannerModal({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [retryCount, setRetryCount] = useState<number>(0);
   const [lastScannedResult, setLastScannedResult] = useState<{
     summary: string;
     details: string;
@@ -59,8 +60,8 @@ export function QrAssetScannerModal({
   const isCooldownRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Stop camera media stream
-  const stopCamera = useCallback(() => {
+  // Stop camera media stream and animation loop (purely external DOM/media cleanup, no setState)
+  const stopCameraTracks = useCallback(() => {
     if (scanLoopRef.current) {
       cancelAnimationFrame(scanLoopRef.current);
       scanLoopRef.current = null;
@@ -69,7 +70,6 @@ export function QrAssetScannerModal({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    setIsScanning(false);
   }, []);
 
   // Handle a successfully decoded QR string
@@ -193,14 +193,28 @@ export function QrAssetScannerModal({
 
       initCamera();
     } else {
-      stopCamera();
+      stopCameraTracks();
     }
 
     return () => {
       isCancelled = true;
-      stopCamera();
+      stopCameraTracks();
     };
-  }, [isOpen, activeTab, facingMode, startScanLoop, stopCamera]);
+  }, [isOpen, activeTab, facingMode, retryCount, startScanLoop, stopCameraTracks]);
+
+  const handleSelectTab = (tab: 'camera' | 'upload' | 'presets') => {
+    if (tab !== 'camera') {
+      stopCameraTracks();
+      setIsScanning(false);
+    }
+    setActiveTab(tab);
+  };
+
+  const handleClose = () => {
+    stopCameraTracks();
+    setIsScanning(false);
+    onClose();
+  };
 
   // Decode from File Upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -271,7 +285,7 @@ export function QrAssetScannerModal({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors text-xs font-bold"
           >
             ✕
@@ -282,7 +296,7 @@ export function QrAssetScannerModal({
         <div className="bg-slate-100 p-2 border-b border-slate-200 flex items-center gap-1 shrink-0">
           <button
             type="button"
-            onClick={() => setActiveTab('camera')}
+            onClick={() => handleSelectTab('camera')}
             className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'camera'
                 ? 'bg-white text-slate-900 shadow-xs'
@@ -295,7 +309,7 @@ export function QrAssetScannerModal({
 
           <button
             type="button"
-            onClick={() => setActiveTab('upload')}
+            onClick={() => handleSelectTab('upload')}
             className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'upload'
                 ? 'bg-white text-slate-900 shadow-xs'
@@ -308,7 +322,7 @@ export function QrAssetScannerModal({
 
           <button
             type="button"
-            onClick={() => setActiveTab('presets')}
+            onClick={() => handleSelectTab('presets')}
             className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'presets'
                 ? 'bg-white text-slate-900 shadow-xs'
@@ -371,15 +385,15 @@ export function QrAssetScannerModal({
                     <div className="flex gap-2 pt-2">
                       <button
                         type="button"
-                        onClick={startCamera}
-                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white border border-slate-700"
+                        onClick={() => setRetryCount((c) => c + 1)}
+                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white border border-slate-700 cursor-pointer"
                       >
                         Retry Camera
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveTab('presets')}
-                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-bold text-slate-950"
+                        onClick={() => handleSelectTab('presets')}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-bold text-slate-950 cursor-pointer"
                       >
                         Use Test Presets
                       </button>
@@ -402,7 +416,7 @@ export function QrAssetScannerModal({
               </div>
 
               <div className="text-center text-xs text-slate-500">
-                Hold your device camera up to any Phoenix, Dri-Eaz, or ADR room barcode. Auto-detection triggers immediately.
+                Hold your device camera up to any Phoenix, Dri-Eaz, or DryScope room barcode. Auto-detection triggers immediately.
               </div>
             </div>
           )}
@@ -593,7 +607,7 @@ export function QrAssetScannerModal({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs"
           >
             Done Scanning

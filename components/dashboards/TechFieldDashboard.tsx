@@ -38,10 +38,19 @@ import {
   Globe,
   Radio,
   Barcode,
+  Volume2,
+  Headphones,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { PsychrometricCalculator } from './PsychrometricCalculator';
 import { QrAssetScannerModal } from './QrAssetScannerModal';
+import { RapidTapScopingHud } from './RapidTapScopingHud';
+import { playConfirmationChime, speakAssistantFeedback } from '@/lib/audioChime';
+import {
+  SAMPLE_MOISTURE_METER_PHOTO,
+  SAMPLE_THERMAL_IMAGING_PHOTO,
+  SAMPLE_STRUCTURAL_DAMAGE_PHOTO,
+} from '@/lib/sampleInspectionPhotos';
 import {
   usePhotoGeolocation,
   buildGoogleMapsUrl,
@@ -70,9 +79,12 @@ export function TechFieldDashboard({
   const [activeSubTab, setActiveSubTab] = useState<'scoping' | 'psychrometrics' | 'all'>('scoping');
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
+  const [isHandsFreeMode, setIsHandsFreeMode] = useState(false);
   const [transcript, setTranscript] = useState(job.rawTranscript || '');
   const [isParsingScope, setIsParsingScope] = useState(false);
   const [parseMessage, setParseMessage] = useState<string | null>(null);
+  const silenceTimerRef = useRef<any>(null);
+  const isHandsFreeRef = useRef<boolean>(false);
 
   // Photo Inspection & Geolocation Hook
   const {
@@ -116,7 +128,25 @@ export function TechFieldDashboard({
           for (let i = 0; i < event.results.length; i++) {
             current += event.results[i][0].transcript + ' ';
           }
-          setTranscript((prev) => (prev ? prev + ' ' + current : current));
+          const trimmed = current.trim();
+          setTranscript(trimmed);
+
+          // In hands-free mode, 2.2s of silence automatically triggers scope parsing
+          if (isHandsFreeRef.current && trimmed.length > 10) {
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = setTimeout(() => {
+              handleParseScopeWithAI(true, trimmed);
+            }, 2200);
+          }
+        };
+        recognition.onend = () => {
+          if (isHandsFreeRef.current) {
+            try {
+              recognition.start();
+            } catch (e) {}
+          } else {
+            setIsRecording(false);
+          }
         };
         recognition.onerror = (e: any) => {
           console.log('Speech recognition event:', e.error);
@@ -165,14 +195,38 @@ export function TechFieldDashboard({
     }
   };
 
+  // Toggle Hands-Free Continuous Conversation Mode
+  const toggleHandsFreeMode = () => {
+    const nextState = !isHandsFreeMode;
+    setIsHandsFreeMode(nextState);
+    isHandsFreeRef.current = nextState;
+
+    if (nextState) {
+      setIsRecording(true);
+      playConfirmationChime();
+      speakAssistantFeedback('Hands-free live walkthrough active. Speak room specifications freely.');
+      try {
+        recognitionRef.current?.start();
+      } catch (e) {}
+    } else {
+      setIsRecording(false);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      try {
+        recognitionRef.current?.stop();
+      } catch (e) {}
+      speakAssistantFeedback('Hands-free mode paused.');
+    }
+  };
+
   // Load realistic field sample dictation
   const handleLoadSample = (sampleText: string) => {
     setTranscript(sampleText);
   };
 
   // Call server-side /api/scope
-  const handleParseScopeWithAI = async () => {
-    if (!transcript.trim()) return;
+  const handleParseScopeWithAI = async (isAutoHandsFree: boolean = false, overrideTranscript?: string) => {
+    const activeText = overrideTranscript || transcript;
+    if (!activeText.trim()) return;
     setIsParsingScope(true);
     setParseMessage(null);
 
@@ -180,7 +234,7 @@ export function TechFieldDashboard({
       const res = await fetch('/api/scope', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, existingJobData: job }),
+        body: JSON.stringify({ transcript: activeText, existingJobData: job }),
       });
 
       const json = await res.json();
@@ -188,7 +242,7 @@ export function TechFieldDashboard({
         const d = json.data;
         const updated: RestorationJob = {
           ...job,
-          rawTranscript: transcript,
+          rawTranscript: activeText,
           category: d.category || job.category,
           finishType: d.finishType || job.finishType,
           cabinetryMultiplier: d.cabinetryMultiplier ?? job.cabinetryMultiplier,
@@ -216,9 +270,20 @@ export function TechFieldDashboard({
         };
 
         onUpdateJob(updated);
+        playConfirmationChime();
+
+        const roomCount = d.dimensions?.length || 1;
+        const firstRoom = d.dimensions?.[0];
         setParseMessage(
-          `✓ Scope parsed successfully: ${d.dimensions?.length || 1} room(s), Category: ${d.category || job.category}. Zero dollar estimates calculated per strict rule.`
+          `✓ Scope parsed: ${roomCount} room(s) logged, Category: ${d.category || job.category}. Zero dollar estimates calculated per strict rule.`
         );
+
+        if (isAutoHandsFree || isHandsFreeMode) {
+          const feedback = firstRoom
+            ? `${firstRoom.roomName} logged: ${firstRoom.lengthFt} by ${firstRoom.widthFt}, ${d.equipment?.airMovers || 0} air movers, ${d.equipment?.dehumidifiers || 0} dehus.`
+            : 'Room scope parsed and synced to cloud.';
+          speakAssistantFeedback(feedback);
+        }
       } else {
         setParseMessage(`Error: ${json.error || 'Parsing failed'}`);
       }
@@ -342,25 +407,57 @@ export function TechFieldDashboard({
         }
 
         let updatedMoisture = [...job.moistureReadings];
-        if (json.data.meterReading) {
-          const val = parseFloat(json.data.meterReading.replace(/[^\d.]/g, '')) || 32.5;
+        const meterVal =
+          json.data.numericReadingValue ??
+          (json.data.meterReading ? parseFloat(json.data.meterReading.replace(/[^\d.]/g, '')) : null);
+        if (meterVal !== null && !isNaN(meterVal)) {
           updatedMoisture.push({
             id: `mr-vision-${Date.now()}`,
             roomName: job.dimensions[0]?.roomName || 'Field Inspection',
             substrate: json.data.substrate || 'Gypsum / Subfloor',
-            readingValue: val,
+            readingValue: meterVal,
             unit: '% WME',
             dryStandard: 12.0,
-            isAffected: val > 16.0,
+            isAffected: meterVal > 16.0,
             notes: 'Extracted automatically from meter display photo OCR',
           });
+        }
+
+        let updatedThermal = [...job.thermalReadings];
+        const thermalVal =
+          json.data.numericDeltaT ??
+          (json.data.thermalDelta ? parseFloat(json.data.thermalDelta.replace(/[^\d.-]/g, '')) : null);
+        if (thermalVal !== null && !isNaN(thermalVal)) {
+          updatedThermal.push({
+            id: `tr-vision-${Date.now()}`,
+            roomName: job.dimensions[0]?.roomName || 'Field Inspection',
+            deltaTFahrenheit: thermalVal,
+            perimeterBoundaryDesc:
+              json.data.perimeterBoundaryDesc || 'Cold evaporative cooling thermal anomaly detected along base cavity',
+            hotspotOrCold: 'cold_anomaly',
+          });
+        }
+
+        let updatedActions = [...job.actions];
+        if (json.data.standardAction && !updatedActions.includes(json.data.standardAction)) {
+          updatedActions.push(json.data.standardAction);
         }
 
         onUpdateJob({
           ...job,
           photos: updatedPhotos,
           moistureReadings: updatedMoisture,
+          thermalReadings: updatedThermal,
+          actions: updatedActions,
+          updatedAt: new Date().toISOString(),
         });
+
+        playConfirmationChime();
+        speakAssistantFeedback(
+          `Forensic evidence verified: ${
+            json.data.meterReading || json.data.thermalDelta || json.data.substrate || 'Photo evidence'
+          } recorded on ${json.data.substrate || 'substrate'}.`
+        );
       }
     } catch (err) {
       console.error('Photo analysis error:', err);
@@ -587,14 +684,39 @@ export function TechFieldDashboard({
                 </div>
               </div>
 
-              {/* Dictation Status */}
-              {isRecording && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold animate-pulse">
-                  <span className="w-2 h-2 rounded-full bg-red-600" />
-                  <span>Recording Audio</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleHandsFreeMode}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isHandsFreeMode
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-300'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                  }`}
+                  title="Toggle hands-free live conversation while walking the loss site"
+                >
+                  <Headphones className="w-3.5 h-3.5 text-amber-300" />
+                  <span>{isHandsFreeMode ? 'Hands-Free Walkthrough Active' : 'Enable Hands-Free Walkthrough'}</span>
+                </button>
+
+                {/* Dictation Status */}
+                {isRecording && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-red-600" />
+                    <span>{isHandsFreeMode ? 'Listening' : 'Recording'}</span>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {isHandsFreeMode && (
+              <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-950 text-xs flex items-center gap-2.5 animate-in fade-in">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                <span className="font-medium">
+                  <strong>Hands-Free Assistant Active:</strong> Walk through rooms and speak specifications continuously. A 2-second pause automatically parses measurements, plays a chime, and speaks verbal confirmation.
+                </span>
+              </div>
+            )}
 
             {/* Quick Field Presets */}
             <div className="mb-3">
@@ -755,6 +877,9 @@ export function TechFieldDashboard({
               </div>
             )}
           </div>
+
+          {/* 1.5 One-Handed Rapid-Tap Scoping HUD */}
+          <RapidTapScopingHud job={job} onUpdateJob={onUpdateJob} />
 
           {/* 2. Multimodal Photo & Vision OCR Card */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">

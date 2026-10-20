@@ -49,7 +49,7 @@ export function DocumentSuiteModal({
               DS
             </div>
             <div>
-              <h2 className="text-sm font-bold">ADR Official 4-Document Insurance Suite</h2>
+              <h2 className="text-sm font-bold">DryScope Official 4-Document Insurance Suite</h2>
               <p className="text-[11px] text-slate-400">
                 Job #{job.jobId} • {job.client.name} • {job.category}
               </p>
@@ -125,7 +125,7 @@ export function DocumentSuiteModal({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-black text-[#0B192C]">
-                  ALERT DISASTER <span className="text-emerald-600">RESTORATION</span>
+                  DRYSCOPE <span className="text-emerald-600">RESTORATION</span>
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -177,7 +177,7 @@ export function DocumentSuiteModal({
               <div>
                 <h4 className="font-bold text-slate-900 mb-1">1. EMERGENCY SCOPE OF SERVICES</h4>
                 <p>
-                  Alert Disaster Restoration is hereby authorized to perform urgent mitigation, water extraction, controlled demolition of wet non-salvageable substrates, and deploy structural drying chambers according to IICRC S500 Standard for Professional Water Damage Restoration.
+                  DryScope Restoration is hereby authorized to perform urgent mitigation, water extraction, controlled demolition of wet non-salvageable substrates, and deploy structural drying chambers according to IICRC S500 Standard for Professional Water Damage Restoration.
                 </p>
               </div>
 
@@ -201,7 +201,7 @@ export function DocumentSuiteModal({
               <div>
                 <h4 className="font-bold text-slate-900 mb-1">2. DIRECT PAYMENT AUTHORIZATION</h4>
                 <p>
-                  The Owner agrees that ADR shall bill {job.client.insuranceCarrier} directly. The Owner assigns all rights and benefits under the policy for mitigation services rendered, deductible responsibility ($
+                  The Owner agrees that DryScope Restoration shall bill {job.client.insuranceCarrier} directly. The Owner assigns all rights and benefits under the policy for mitigation services rendered, deductible responsibility ($
                   {job.client.deductible.toFixed(2)}) remains with the policyholder.
                 </p>
               </div>
@@ -239,7 +239,7 @@ export function DocumentSuiteModal({
 
                   <div>
                     <span className="text-[11px] font-bold text-slate-700 block mb-2">
-                      ADR CERTIFIED TECHNICIAN:
+                      DRYSCOPE CERTIFIED TECHNICIAN:
                     </span>
                     <div className="border border-slate-200 bg-slate-50 p-3 rounded-lg">
                       <div className="font-bold text-xs text-slate-900">
@@ -289,7 +289,7 @@ export function DocumentSuiteModal({
               <table className="w-full text-xs text-left border border-slate-200">
                 <thead className="bg-slate-100 uppercase font-bold text-[11px] border-b border-slate-200">
                   <tr>
-                    <th className="p-2.5">ADR Item Code</th>
+                    <th className="p-2.5">DryScope Item Code</th>
                     <th className="p-2.5">Description</th>
                     <th className="p-2.5 text-right">Quantity</th>
                     <th className="p-2.5 text-right">Rate</th>
@@ -425,7 +425,7 @@ export function DocumentSuiteModal({
               <div className="pt-4">
                 <p>Sincerely,</p>
                 <p className="font-bold text-slate-900 mt-1">Courtney Jenkins & Nate Norman</p>
-                <p className="text-slate-500">Alert Disaster Restoration Technical Scoping Division</p>
+                <p className="text-slate-500">DryScope Restoration Technical Scoping Division</p>
               </div>
             </div>
           )}

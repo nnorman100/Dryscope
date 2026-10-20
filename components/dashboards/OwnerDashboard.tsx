@@ -39,7 +39,7 @@ export function OwnerDashboard({
               <Building2 className="w-3.5 h-3.5" />
               Owner & Executive Command Center
             </span>
-            <span className="text-xs text-slate-400">Alert Disaster Restoration</span>
+            <span className="text-xs text-slate-400">DryScope Restoration Network</span>
           </div>
           <h2 className="text-2xl font-black text-white mt-1">
             Restoration Pipeline & Profitability Operations

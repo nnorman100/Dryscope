@@ -14,6 +14,12 @@ import { SuperadminDashboard } from '@/components/dashboards/SuperadminDashboard
 import { ClientPortal } from '@/components/dashboards/ClientPortal';
 import { LoginModal } from '@/components/auth/LoginModal';
 import { DocumentSuiteModal } from '@/components/documents/DocumentSuiteModal';
+import {
+  subscribeToJobs,
+  syncJobToFirestore,
+  seedJobsIfEmpty,
+  testConnection,
+} from '@/lib/firebase';
 
 const LOCAL_STORAGE_KEY_JOBS = 'dryscope_restoration_jobs_v1';
 const LOCAL_STORAGE_KEY_USER = 'dryscope_current_user_v1';
@@ -25,6 +31,7 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<UserAccount>(DEMO_USERS[3]);
   const [currentView, setCurrentView] = useState<string>('landing');
   const [activeJobId, setActiveJobId] = useState<string>(INITIAL_JOBS[0].id);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
 
   // Safe SSR hydration status via useSyncExternalStore without cascading setState
   const isHydrated = useSyncExternalStore(
@@ -89,6 +96,33 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Real-time Firestore Cloud Subscription & Offline Persistence
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    testConnection()
+      .then(() => {
+        setIsCloudConnected(true);
+        seedJobsIfEmpty(INITIAL_JOBS).catch(console.warn);
+        unsubscribe = subscribeToJobs(
+          (cloudJobs) => {
+            if (Array.isArray(cloudJobs) && cloudJobs.length > 0) {
+              setJobs(cloudJobs);
+            }
+          },
+          (err) => {
+            console.warn('Firestore subscription fallback:', err);
+          }
+        );
+      })
+      .catch(() => {
+        setIsCloudConnected(false);
+      });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
   // Sync to localStorage only after client hydration is complete (prevent overwriting saved data with initial data on first mount)
   useEffect(() => {
     if (isHydrated) {
@@ -110,6 +144,10 @@ export default function Home() {
 
   const handleUpdateJob = (updated: RestorationJob) => {
     setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
+    // Immediate reactive write to Firestore cloud
+    syncJobToFirestore(updated).catch((err) => {
+      console.warn('Cloud sync error (queued locally):', err);
+    });
   };
 
   const handleSwitchUser = (user: UserAccount) => {
@@ -124,7 +162,7 @@ export default function Home() {
   const handleCreateNewEstimate = () => {
     const newJob: RestorationJob = {
       id: `job-${Date.now()}`,
-      jobId: `ADR-2026-${Math.floor(Math.random() * 800 + 200)}`,
+      jobId: `DS-2026-${Math.floor(Math.random() * 800 + 200)}`,
       status: 'Draft',
       isArchived: false,
       category: 'Cat 1 (Clean)',
@@ -181,6 +219,7 @@ export default function Home() {
     setJobs((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
     setCurrentView('tech');
+    syncJobToFirestore(newJob).catch(console.warn);
   };
 
   const handleRestoreArchivedJob = (archived: RestorationJob) => {
@@ -199,6 +238,7 @@ export default function Home() {
     setJobs((prev) => [restored, ...prev]);
     setActiveJobId(restored.id);
     setCurrentView('office');
+    syncJobToFirestore(restored).catch(console.warn);
   };
 
   const handleOpenDocSuiteForJob = (target?: RestorationJob) => {
@@ -219,6 +259,7 @@ export default function Home() {
         onOpenDocSuite={() => handleOpenDocSuiteForJob(activeJob)}
         currentView={currentView}
         onChangeView={setCurrentView}
+        isCloudConnected={isCloudConnected}
       />
 
       {/* Main View Router */}
@@ -332,7 +373,7 @@ export default function Home() {
         onSelectUser={handleSwitchUser}
       />
 
-      {/* ADR 4-Document Suite & PDF Print Modal */}
+      {/* Official 4-Document Suite & PDF Print Modal */}
       <DocumentSuiteModal
         isOpen={isDocSuiteOpen}
         onClose={() => setIsDocSuiteOpen(false)}
