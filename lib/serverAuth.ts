@@ -1,12 +1,13 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import firebaseConfig from '../firebase-applet-config.json';
-import { isStaffRole } from './roles';
+import { isStaffRole, isTenantRole } from './roles';
 import { UserRole } from './types';
 
 // Server-side checks for the Gemini routes and the Live socket. Firebase ID
 // tokens are verified against Google's public keys, so no service account is
-// needed. The caller's role is then read from their own /users/{uid} doc with
-// their own token, which firestore.rules allows.
+// needed. The caller's company and role are then read from their own
+// /users/{uid} and /tenants/{tenantId}/members/{uid} docs with their own token,
+// which firestore.rules allows.
 
 const projectId = firebaseConfig.projectId;
 const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
@@ -19,6 +20,8 @@ export interface StaffCaller {
   uid: string;
   email?: string;
   role: UserRole;
+  // The caller's company. Superadmins may have none.
+  tenantId: string | null;
 }
 
 export class AuthError extends Error {
@@ -28,7 +31,12 @@ export class AuthError extends Error {
 }
 
 const ROLE_CACHE_MS = 5 * 60 * 1000;
-const roleCache = new Map<string, { role: string | null; expires: number }>();
+const roleCache = new Map<string, { access: Access; expires: number }>();
+
+interface Access {
+  role: string | null;
+  tenantId: string | null;
+}
 
 export async function verifyFirebaseIdToken(token: string): Promise<{ uid: string; email?: string }> {
   try {
@@ -44,37 +52,54 @@ export async function verifyFirebaseIdToken(token: string): Promise<{ uid: strin
   }
 }
 
-async function fetchRole(uid: string, token: string): Promise<string | null> {
-  const cached = roleCache.get(uid);
-  if (cached && cached.expires > Date.now()) return cached.role;
-
+// Reads one Firestore document as the caller. Returns null if it doesn't exist.
+async function fetchDocFields(path: string, token: string): Promise<Record<string, any> | null> {
   const url =
     `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
-    `/databases/${encodeURIComponent(databaseId)}/documents/users/${encodeURIComponent(uid)}`;
+    `/databases/${encodeURIComponent(databaseId)}/documents/${path}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-
-  let role: string | null = null;
   if (res.ok) {
     const doc = await res.json();
-    role = doc?.fields?.role?.stringValue ?? null;
-  } else if (res.status !== 404) {
-    // Don't cache transient failures
-    throw new AuthError('Could not check account role', 403);
+    return doc?.fields ?? {};
+  }
+  if (res.status === 404) return null;
+  // Don't cache transient failures
+  throw new AuthError('Could not check account role', 403);
+}
+
+async function fetchAccess(uid: string, token: string): Promise<Access> {
+  const cached = roleCache.get(uid);
+  if (cached && cached.expires > Date.now()) return cached.access;
+
+  const user = await fetchDocFields(`users/${encodeURIComponent(uid)}`, token);
+  const tenantId: string | null = user?.tenantId?.stringValue ?? null;
+  let role: string | null = null;
+  if (user?.platformRole?.stringValue === 'superadmin') {
+    role = 'superadmin';
+  } else if (tenantId) {
+    const member = await fetchDocFields(
+      `tenants/${encodeURIComponent(tenantId)}/members/${encodeURIComponent(uid)}`,
+      token
+    );
+    const memberRole = member?.role?.stringValue;
+    role = isTenantRole(memberRole) ? memberRole : null;
   }
 
-  roleCache.set(uid, { role, expires: Date.now() + ROLE_CACHE_MS });
-  return role;
+  const access = { role, tenantId };
+  roleCache.set(uid, { access, expires: Date.now() + ROLE_CACHE_MS });
+  return access;
 }
 
 /**
- * Verify a Firebase ID token and require that its user has a staff role.
+ * Verify a Firebase ID token and require that its user is staff at a company
+ * (or a platform superadmin).
  */
 export async function requireStaffToken(token: string | null | undefined): Promise<StaffCaller> {
   if (!token) throw new AuthError('Sign in required', 401);
   const { uid, email } = await verifyFirebaseIdToken(token);
-  const role = await fetchRole(uid, token);
+  const { role, tenantId } = await fetchAccess(uid, token);
   if (!isStaffRole(role)) throw new AuthError('This account does not have staff access', 403);
-  return { uid, email, role };
+  return { uid, email, role, tenantId };
 }
 
 export function bearerToken(authorizationHeader: string | null | undefined): string | null {

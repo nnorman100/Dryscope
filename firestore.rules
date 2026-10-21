@@ -1,6 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Every company's data lives under /tenants/{tenantId}. Access comes from
+    // the caller's /tenants/{tenantId}/members/{uid} doc, never from anything
+    // in the request. /users/{uid} only says which company a person belongs to
+    // (and whether they are a platform superadmin).
+
     // Helper to validate clean document ID
     function isValidId(docId) {
       return docId is string && docId.size() > 0 && docId.size() <= 128;
@@ -14,21 +19,34 @@ service cloud.firestore {
       return /databases/$(database)/documents/users/$(request.auth.uid);
     }
 
-    function myRole() {
-      return signedIn() && exists(userDoc()) ? get(userDoc()).data.role : null;
+    function memberDoc(tenantId) {
+      return /databases/$(database)/documents/tenants/$(tenantId)/members/$(request.auth.uid);
     }
 
-    // Company staff. Keep in sync with STAFF_ROLES in lib/roles.ts.
-    function isStaff() {
-      return myRole() in ['superadmin', 'owner', 'office_staff', 'sales_technician'];
-    }
-
+    // Platform superadmins (set by hand in the console) can reach every company
     function isSuperadmin() {
-      return myRole() == 'superadmin';
+      return signedIn()
+        && exists(userDoc())
+        && get(userDoc()).data.get('platformRole', null) == 'superadmin';
     }
 
-    function isManager() {
-      return myRole() in ['superadmin', 'owner'];
+    function tenantRole(tenantId) {
+      return signedIn() && exists(memberDoc(tenantId))
+        ? get(memberDoc(tenantId)).data.role
+        : null;
+    }
+
+    // Roles a company member can hold. Keep in sync with TENANT_ROLES in lib/roles.ts.
+    function isTenantRole(role) {
+      return role in ['owner', 'office_staff', 'sales_technician'];
+    }
+
+    function isStaffOf(tenantId) {
+      return isSuperadmin() || isTenantRole(tenantRole(tenantId));
+    }
+
+    function isManagerOf(tenantId) {
+      return isSuperadmin() || tenantRole(tenantId) == 'owner';
     }
 
     // A homeowner signed in with the verified email recorded on the job
@@ -39,44 +57,76 @@ service cloud.firestore {
         && job.client.email == request.auth.token.email;
     }
 
-    // User accounts. A /users/{uid} doc with a staff role is what grants staff
-    // access, so only managers write them and nobody can change their own role.
+    // Which company a person belongs to. Owners place people in their own
+    // company; only superadmins set platformRole or move people between companies.
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+      allow read: if signedIn()
+        && (request.auth.uid == userId
+            || isSuperadmin()
+            || isManagerOf(resource.data.tenantId));
 
-      // Superadmins manage anyone; owners manage everyone except superadmins
       allow create: if isSuperadmin()
-        || (myRole() == 'owner' && request.resource.data.role != 'superadmin');
+        || (isManagerOf(request.resource.data.tenantId)
+            && !('platformRole' in request.resource.data));
       allow update: if isSuperadmin()
-        || (myRole() == 'owner'
-            && resource.data.role != 'superadmin'
-            && request.resource.data.role != 'superadmin')
+        || (isManagerOf(resource.data.tenantId)
+            && request.resource.data.tenantId == resource.data.tenantId
+            && !('platformRole' in request.resource.data))
         || (request.auth.uid == userId
-            && request.resource.data.role == resource.data.role);
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                 .hasAny(['tenantId', 'platformRole']));
       allow delete: if isSuperadmin()
-        || (myRole() == 'owner' && resource.data.role != 'superadmin');
+        || (isManagerOf(resource.data.tenantId) && !('platformRole' in resource.data));
     }
 
-    // Restoration jobs. Staff see and edit all jobs; a client sees only jobs
-    // carrying their email and may only sign the authorization.
-    match /jobs/{jobId} {
-      allow read: if isStaff() || isJobClient(resource.data);
+    // A restoration company
+    match /tenants/{tenantId} {
+      allow read: if isStaffOf(tenantId);
+      allow write: if isSuperadmin();
 
-      allow create: if isStaff()
-        && isValidId(jobId)
-        && request.resource.data.id == jobId;
+      // Company staff and their role. Owners manage their own company's
+      // members; nobody can change their own role.
+      match /members/{memberId} {
+        allow read: if signedIn() && (request.auth.uid == memberId || isStaffOf(tenantId));
 
-      allow update: if (isStaff() && request.resource.data.id == jobId)
-        || (isJobClient(resource.data)
-            && resource.data.signature.isSigned != true
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['signature', 'status', 'updatedAt'])
-            && request.resource.data.signature.isSigned == true
-            && request.resource.data.status == 'Client Authorized');
+        allow create: if isManagerOf(tenantId) && isTenantRole(request.resource.data.role);
+        allow update: if (isManagerOf(tenantId) && isTenantRole(request.resource.data.role))
+          || (request.auth.uid == memberId
+              && request.resource.data.role == resource.data.role);
+        allow delete: if isManagerOf(tenantId);
+      }
 
-      allow delete: if myRole() in ['superadmin', 'owner', 'office_staff'];
+      // Restoration jobs. Staff see and edit their company's jobs; a client
+      // sees only jobs carrying their email and may only sign the authorization.
+      match /jobs/{jobId} {
+        allow read: if isStaffOf(tenantId) || isJobClient(resource.data);
+
+        allow create: if isStaffOf(tenantId)
+          && isValidId(jobId)
+          && request.resource.data.id == jobId
+          && request.resource.data.tenantId == tenantId;
+
+        allow update: if (isStaffOf(tenantId)
+              && request.resource.data.id == jobId
+              && request.resource.data.tenantId == tenantId)
+          || (isJobClient(resource.data)
+              && resource.data.signature.isSigned != true
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['signature', 'status', 'updatedAt'])
+              && request.resource.data.signature.isSigned == true
+              && request.resource.data.status == 'Client Authorized');
+
+        allow delete: if isSuperadmin() || tenantRole(tenantId) in ['owner', 'office_staff'];
+      }
     }
 
-    // Everything else, including the old public /test collection, is closed.
+    // Clients find their jobs across every company with a collection group
+    // query filtered on their own email.
+    match /{path=**}/jobs/{jobId} {
+      allow read: if isJobClient(resource.data);
+    }
+
+    // Everything else is closed. The old top-level /jobs collection is only
+    // readable by its clients through the rule above, and /test is closed.
   }
 }

@@ -10,6 +10,8 @@ export interface UserAccount {
   name: string;
   email: string;
   role: UserRole;
+  // The company this person works for (tenants/{tenantId}). Clients have none.
+  tenantId?: string;
   title: string;
   companyName: string;
   phone?: string;
@@ -149,6 +151,8 @@ export interface DigitalSignature {
 
 export interface RestorationJob {
   id: string;
+  // The company that owns the job; it lives at tenants/{tenantId}/jobs/{id}
+  tenantId?: string;
   jobId: string; // e.g. 'DS-2026-0842'
   status:
     | 'Draft'

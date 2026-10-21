@@ -80,6 +80,7 @@ function Home() {
   const [docSuiteTargetJob, setDocSuiteTargetJob] = useState<RestorationJob | null>(null);
 
   const uid = account?.id;
+  const tenantId = account?.tenantId;
 
   // Before the first update for this user: staff start from their saved jobs
   // (or the demo jobs), clients from nothing until their own jobs load
@@ -125,8 +126,8 @@ function Home() {
     }
   }, [status]);
 
-  // Live jobs for whoever is signed in: staff get the whole company's jobs,
-  // clients only the jobs carrying their verified email
+  // Live jobs for whoever is signed in: staff get their own company's jobs,
+  // clients only the jobs carrying their verified email, at any company
   useEffect(() => {
     if (status !== 'signed_in' || !role) return;
 
@@ -134,12 +135,15 @@ function Home() {
     let cancelled = false;
 
     if (isStaffRole(role)) {
+      // A superadmin who isn't placed in a company has no jobs to load
+      if (!tenantId) return;
       testConnection()
         .then(() => {
           if (cancelled) return;
           setIsCloudConnected(true);
-          seedJobsIfEmpty(INITIAL_JOBS).catch(console.warn);
+          seedJobsIfEmpty(tenantId, INITIAL_JOBS).catch(console.warn);
           unsubscribe = subscribeToJobs(
+            tenantId,
             (cloudJobs) => {
               if (Array.isArray(cloudJobs) && cloudJobs.length > 0) {
                 setJobs(cloudJobs);
@@ -163,7 +167,7 @@ function Home() {
       cancelled = true;
       if (unsubscribe) unsubscribe();
     };
-  }, [status, role, account?.email, emailVerified, setJobs]);
+  }, [status, role, tenantId, account?.email, emailVerified, setJobs]);
 
   // Cache staff jobs locally once they have changed for this user. Clients
   // never cache jobs on the device.
@@ -196,7 +200,13 @@ function Home() {
 
   const activeJob = jobs.find((j) => j.id === activeJobId) || jobs[0];
 
-  const handleUpdateJob = (updated: RestorationJob) => {
+  // Jobs loaded from Firestore carry their company; local demo jobs get the
+  // signed-in staff member's company when first saved
+  const withTenant = (job: RestorationJob): RestorationJob =>
+    job.tenantId || !tenantId ? job : { ...job, tenantId };
+
+  const handleUpdateJob = (edited: RestorationJob) => {
+    const updated = withTenant(edited);
     setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
     // Immediate reactive write to Firestore cloud
     syncJobToFirestore(updated).catch((err) => {
@@ -207,6 +217,7 @@ function Home() {
   const handleCreateNewEstimate = (customJob?: Partial<RestorationJob>) => {
     const newJob: RestorationJob = {
       id: `job-${Date.now()}`,
+      tenantId,
       jobId: customJob?.jobId || `DS-2026-${Math.floor(Math.random() * 800 + 200)}`,
       status: 'Draft',
       isArchived: false,
@@ -269,7 +280,7 @@ function Home() {
   };
 
   const handleRestoreArchivedJob = (archived: RestorationJob) => {
-    const restored: RestorationJob = {
+    const restored: RestorationJob = withTenant({
       ...archived,
       id: `job-restored-${Date.now()}`,
       jobId: `${archived.jobId}-REV`,
@@ -279,7 +290,7 @@ function Home() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       technicianNotes: `Supplementary claim revision restored from archived record ${archived.jobId}.`,
-    };
+    });
 
     setJobs((prev) => [restored, ...prev]);
     setActiveJobId(restored.id);

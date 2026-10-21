@@ -8,6 +8,7 @@ import {
   doc,
   getDocFromServer,
   collection,
+  collectionGroup,
   onSnapshot,
   setDoc,
   deleteDoc,
@@ -76,16 +77,26 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
+// A company's jobs live at tenants/{tenantId}/jobs/{jobId}
+function jobsCollection(tenantId: string) {
+  return collection(getDb(), 'tenants', tenantId, 'jobs');
+}
+
+function jobTenantId(job: RestorationJob): string {
+  if (!job.tenantId) throw new Error(`Job ${job.id} has no company (tenantId)`);
+  return job.tenantId;
+}
+
 /**
- * Subscribe to real-time changes across all restoration jobs.
+ * Subscribe to real-time changes across one company's restoration jobs.
  * Offline-first: emits local cache immediately, then syncs with remote cloud state.
  */
 export function subscribeToJobs(
+  tenantId: string,
   onUpdate: (jobs: RestorationJob[]) => void,
   onError?: (error: Error) => void
 ): Unsubscribe {
-  const firestore = getDb();
-  const jobsCol = collection(firestore, 'jobs');
+  const jobsCol = jobsCollection(tenantId);
 
   return onSnapshot(
     jobsCol,
@@ -109,8 +120,9 @@ export function subscribeToJobs(
 }
 
 /**
- * Subscribe to the jobs a signed-in client may see: those whose client email is
- * their own. The equality filter is what lets firestore.rules allow the query.
+ * Subscribe to the jobs a signed-in client may see, at any company: those whose
+ * client email is their own. The equality filter is what lets firestore.rules
+ * allow the collection group query.
  */
 export function subscribeToClientJobs(
   email: string,
@@ -118,7 +130,7 @@ export function subscribeToClientJobs(
   onError?: (error: Error) => void
 ): Unsubscribe {
   const firestore = getDb();
-  const jobsQuery = query(collection(firestore, 'jobs'), where('client.email', '==', email));
+  const jobsQuery = query(collectionGroup(firestore, 'jobs'), where('client.email', '==', email));
 
   return onSnapshot(
     jobsQuery,
@@ -144,8 +156,7 @@ export function subscribeToClientJobs(
  * Real-time save / sync of a single restoration job to Firestore
  */
 export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
-  const firestore = getDb();
-  const jobRef = doc(firestore, 'jobs', job.id);
+  const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
   const payload = {
     ...job,
     updatedAt: new Date().toISOString(),
@@ -156,22 +167,20 @@ export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
 /**
  * Delete a job from Firestore
  */
-export async function deleteJobFromFirestore(jobId: string): Promise<void> {
-  const firestore = getDb();
-  await deleteDoc(doc(firestore, 'jobs', jobId));
+export async function deleteJobFromFirestore(tenantId: string, jobId: string): Promise<void> {
+  await deleteDoc(doc(jobsCollection(tenantId), jobId));
 }
 
 /**
- * Seed initial jobs to Firestore if the cloud database is empty
+ * Seed initial jobs into a company if it has none yet
  */
-export async function seedJobsIfEmpty(initialJobs: RestorationJob[]): Promise<void> {
+export async function seedJobsIfEmpty(tenantId: string, initialJobs: RestorationJob[]): Promise<void> {
   try {
-    const firestore = getDb();
-    const jobsCol = collection(firestore, 'jobs');
+    const jobsCol = jobsCollection(tenantId);
     const existing = await getDocs(jobsCol);
     if (existing.empty && initialJobs.length > 0) {
       for (const job of initialJobs) {
-        await setDoc(doc(firestore, 'jobs', job.id), job);
+        await setDoc(doc(jobsCol, job.id), { ...job, tenantId });
       }
     }
   } catch (err) {

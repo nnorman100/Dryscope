@@ -323,7 +323,7 @@ app.prepare().then(() => {
           throw new AuthError('Sign-in required for Gemini Live', 401);
         }
         const caller = await requireStaffToken(payload.token);
-        console.log(`[GeminiLive] Authorized ${caller.uid} (${caller.role})`);
+        console.log(`[GeminiLive] Authorized ${caller.uid} (${caller.role}, tenant ${caller.tenantId ?? 'none'})`);
       } catch (authErr) {
         const message = authErr instanceof Error ? authErr.message : 'Sign-in required for Gemini Live';
         const code = authErr instanceof AuthError && authErr.status === 403 ? 4403 : 4401;

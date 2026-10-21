@@ -2,8 +2,16 @@ import { UserRole } from './types';
 
 // Roles that belong to the restoration company. Anyone else who signs in is a
 // client and only sees jobs whose client email matches their verified email.
-// Keep in sync with isStaff() in firestore.rules.
+// superadmin is a platform role (users/{uid}.platformRole); the rest are held
+// per company in tenants/{tenantId}/members/{uid}.
 export const STAFF_ROLES: UserRole[] = ['superadmin', 'owner', 'office_staff', 'sales_technician'];
+
+// Roles a company member can hold. Keep in sync with isTenantRole() in firestore.rules.
+export const TENANT_ROLES: UserRole[] = ['owner', 'office_staff', 'sales_technician'];
+
+export function isTenantRole(role: string | null | undefined): role is UserRole {
+  return !!role && (TENANT_ROLES as string[]).includes(role);
+}
 
 export function isStaffRole(role: string | null | undefined): role is UserRole {
   return !!role && (STAFF_ROLES as string[]).includes(role);
