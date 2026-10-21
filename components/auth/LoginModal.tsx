@@ -12,6 +12,10 @@ interface LoginModalProps {
 
 type Mode = 'sign_in' | 'sign_up' | 'reset';
 
+// Email/password is the sign-in method (enabled through firebase.json). Google
+// stays off until its provider is set up in Firebase and this flag is 'true'.
+const GOOGLE_SIGN_IN_ENABLED = process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN === 'true';
+
 function describeAuthError(err: unknown): string {
   const code = err instanceof FirebaseError ? err.code : '';
   switch (code) {
@@ -117,7 +121,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
         </div>
 
         <div className="p-6 space-y-4">
-          {mode !== 'reset' && (
+          {mode !== 'reset' && GOOGLE_SIGN_IN_ENABLED && (
             <>
               <button
                 type="button"
