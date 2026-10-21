@@ -64,6 +64,7 @@ import { AddressAutocompleteInput } from '@/components/maps/AddressAutocompleteI
 import { JobLocationMap } from '@/components/maps/JobLocationMap';
 import { ParsedPlaceDetails, getDirectionsUrl } from '@/lib/maps-config';
 import { GeminiLiveScopingBar } from '@/components/voice/GeminiLiveScopingBar';
+import { authedFetch } from '@/lib/auth';
 
 interface TechFieldDashboardProps {
   job: RestorationJob;
@@ -290,7 +291,7 @@ export function TechFieldDashboard({
     setParseMessage(null);
 
     try {
-      const res = await fetch('/api/scope', {
+      const res = await authedFetch('/api/scope', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript: activeText, existingJobData: job }),
@@ -432,7 +433,7 @@ export function TechFieldDashboard({
     setIsAnalyzingPhoto(true);
 
     try {
-      const res = await fetch('/api/analyze-photo', {
+      const res = await authedFetch('/api/analyze-photo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
