@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useSyncExternalStore } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserAccount, RestorationJob } from '@/lib/types';
 import { DEMO_USERS, INITIAL_JOBS } from '@/lib/mockData';
 import { Navbar } from '@/components/Navbar';
@@ -25,8 +25,6 @@ import {
 const LOCAL_STORAGE_KEY_JOBS = 'dryscope_restoration_jobs_v1';
 const LOCAL_STORAGE_KEY_USER = 'dryscope_current_user_v1';
 
-const emptySubscribe = () => () => {};
-
 export default function Home() {
   const [jobs, setJobs] = useState<RestorationJob[]>(INITIAL_JOBS);
   const [currentUser, setCurrentUser] = useState<UserAccount>(DEMO_USERS[3]);
@@ -34,12 +32,9 @@ export default function Home() {
   const [activeJobId, setActiveJobId] = useState<string>(INITIAL_JOBS[0].id);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
 
-  // Safe SSR hydration status via useSyncExternalStore without cascading setState
-  const isHydrated = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  );
+  // True once saved state has been read from localStorage; saving waits for it so
+  // the demo data never overwrites the user's saved jobs on reload
+  const [hasLoadedSavedState, setHasLoadedSavedState] = useState<boolean>(false);
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [isDocSuiteOpen, setIsDocSuiteOpen] = useState<boolean>(false);
@@ -92,6 +87,8 @@ export default function Home() {
       } catch (e) {
         console.warn('Failed to parse URL params or saved user', e);
       }
+
+      setHasLoadedSavedState(true);
     }, 0);
 
     return () => clearTimeout(timer);
@@ -124,22 +121,22 @@ export default function Home() {
     };
   }, []);
 
-  // Sync to localStorage only after client hydration is complete (prevent overwriting saved data with initial data on first mount)
+  // Sync to localStorage only after saved state has loaded (prevent overwriting saved data with initial data on first mount)
   useEffect(() => {
-    if (isHydrated) {
+    if (hasLoadedSavedState) {
       try {
         localStorage.setItem(LOCAL_STORAGE_KEY_JOBS, JSON.stringify(jobs));
       } catch (e) {}
     }
-  }, [jobs, isHydrated]);
+  }, [jobs, hasLoadedSavedState]);
 
   useEffect(() => {
-    if (isHydrated) {
+    if (hasLoadedSavedState) {
       try {
         localStorage.setItem(LOCAL_STORAGE_KEY_USER, JSON.stringify(currentUser));
       } catch (e) {}
     }
-  }, [currentUser, isHydrated]);
+  }, [currentUser, hasLoadedSavedState]);
 
   const activeJob = jobs.find((j) => j.id === activeJobId) || jobs[0];
 
