@@ -61,7 +61,7 @@ configuration. One-time project setup, in order:
 4. Create and grant the secrets referenced by `apphosting.yaml`:
    `npx firebase apphosting:secrets:set gemini-api-key` and
    `npx firebase apphosting:secrets:set maps-api-key` (each followed by
-   `apphosting:secrets:grantaccess <name>`). The Maps key must be restricted by
+   `apphosting:secrets:grantaccess <name> --backend dryscope`). The Maps key must be restricted by
    HTTP referrer to the hosted domain.
 5. Roll out (a push to `main` does this once the backend is connected, or
    `npx firebase apphosting:rollouts:create dryscope`), then add the

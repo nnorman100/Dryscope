@@ -26,8 +26,6 @@ export function OwnerDashboard({
 }: OwnerDashboardProps) {
   const pipelineTotal = jobs.reduce((sum, j) => sum + calculatePricingBreakdown(j).itemizedSubtotal, 0);
   const readyForReview = jobs.filter((j) => j.status === 'Ready for Review').length;
-  const airMovers = jobs.reduce((sum, j) => sum + (j.equipment?.airMovers || 0), 0);
-  const dehumidifiers = jobs.reduce((sum, j) => sum + (j.equipment?.dehumidifiers || 0), 0);
   const baselineTotal =
     RATES.EMERGENCY_TRIP +
     Math.round(RATES.MONITORING_BASELINE_HOURS * RATES.MONITORING_RATE_PER_HR * 100) / 100 +
@@ -99,12 +97,12 @@ export function OwnerDashboard({
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Equipment Deployed</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Equipment Utilization</span>
             <Wrench className="w-4 h-4 text-purple-600" />
           </div>
-          <div className="text-3xl font-black text-emerald-600 font-mono">{airMovers + dehumidifiers}</div>
+          <div className="text-3xl font-black text-slate-400 font-mono">—</div>
           <div className="text-[11px] text-slate-500 mt-1 font-medium">
-            {airMovers} Fans • {dehumidifiers} Dehus on open jobs
+            Not tracked: equipment fleet is not recorded
           </div>
         </div>
       </div>

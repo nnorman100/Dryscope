@@ -136,7 +136,6 @@ export function TechFieldDashboard({
         latitude: details.lat,
         longitude: details.lng,
         address: details.formattedAddress,
-        accuracy: 5,
         mapUrl: getDirectionsUrl(details.lat, details.lng, details.formattedAddress),
       },
       updatedAt: new Date().toISOString(),
@@ -383,8 +382,13 @@ export function TechFieldDashboard({
         dataUrl: base64,
         category: photoCategory,
         roomName: job.dimensions[0]?.roomName || 'Loss Area',
-        technicalDescription: 'Photo captured on site with browser geolocation verification.',
-        clientSummary: 'Field inspection photo captured at property.',
+        technicalDescription:
+          gpsResult?.source === 'browser_geolocation'
+            ? 'Photo location from device geolocation.'
+            : gpsResult
+            ? 'Device location unavailable; photo tagged with the job site location.'
+            : 'Photo location not recorded.',
+        clientSummary: 'Field inspection photo.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         gps: gpsResult ? {
           latitude: gpsResult.latitude,
@@ -612,8 +616,8 @@ export function TechFieldDashboard({
       : null;
 
 
-  const selectedMapLat = selectedMapPhoto?.gps?.latitude ?? job.gpsCoordinates?.latitude;
-  const selectedMapLng = selectedMapPhoto?.gps?.longitude ?? job.gpsCoordinates?.longitude;
+  const selectedMapLat = selectedMapPhoto?.gps?.latitude;
+  const selectedMapLng = selectedMapPhoto?.gps?.longitude;
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -1273,8 +1277,8 @@ export function TechFieldDashboard({
             ) : (
               <div className="space-y-4">
                 {job.photos.map((photo, pIdx) => {
-                  const lat = photo.gps?.latitude ?? job.gpsCoordinates?.latitude;
-                  const lng = photo.gps?.longitude ?? job.gpsCoordinates?.longitude;
+                  const lat = photo.gps?.latitude;
+                  const lng = photo.gps?.longitude;
                   const hasLocation = lat != null && lng != null;
                   const gmapsUrl = photo.gps?.mapUrl || (hasLocation ? buildGoogleMapsUrl(lat, lng) : '');
                   const directionsUrl = photo.gps?.directionsUrl || (hasLocation ? buildGoogleMapsDirectionsUrl(lat, lng) : '');
@@ -1377,8 +1381,8 @@ export function TechFieldDashboard({
 
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
                               {photo.gps?.source === 'browser_geolocation'
-                                ? 'Live Browser GPS'
-                                : 'Property Site Fix'}
+                                ? 'Device GPS'
+                                : 'Job Site Location'}
                             </span>
                           </div>
 
@@ -1829,7 +1833,7 @@ export function TechFieldDashboard({
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <span>Google Maps Photo Geolocation Pin</span>
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
-                      Verified Field Pin
+                      {selectedMapPhoto.gps?.source === 'browser_geolocation' ? 'Device GPS' : 'Job Site Location'}
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">

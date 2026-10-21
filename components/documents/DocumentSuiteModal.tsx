@@ -551,7 +551,7 @@ export function DocumentSuiteModal({
                       FORENSIC PHOTO EVIDENCE LEDGER & GEOLOCATION AUDIT ({job.photos.length} PHOTOS):
                     </h4>
                     <span className="text-[10px] text-slate-500 font-mono">
-                      GPS Device Verification • Google Maps Validated
+                      Locations as recorded per photo
                     </span>
                   </div>
 
@@ -563,13 +563,13 @@ export function DocumentSuiteModal({
                         <th className="p-2">Substrate / Reading</th>
                         <th className="p-2">Forensic Scope Description</th>
                         <th className="p-2">GPS Coordinates</th>
-                        <th className="p-2 text-right">Google Maps Verification</th>
+                        <th className="p-2 text-right">Google Maps Link</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-mono text-[10px]">
                       {job.photos.map((photo, idx) => {
-                        const lat = photo.gps?.latitude ?? job.gpsCoordinates?.latitude;
-                        const lng = photo.gps?.longitude ?? job.gpsCoordinates?.longitude;
+                        const lat = photo.gps?.latitude;
+                        const lng = photo.gps?.longitude;
                         const hasLocation = lat != null && lng != null;
                         const gmapsUrl = photo.gps?.mapUrl || (hasLocation ? `https://www.google.com/maps?q=${lat},${lng}` : '');
 
@@ -609,6 +609,11 @@ export function DocumentSuiteModal({
                             </td>
                             <td className="p-2 font-mono text-slate-800">
                               {hasLocation ? `${lat.toFixed(5)}°, ${lng.toFixed(5)}°` : 'Not recorded'}
+                              {hasLocation && (
+                                <span className="block text-[9px] text-slate-400 font-sans">
+                                  {photo.gps?.source === 'browser_geolocation' ? 'Device GPS' : 'Job site location'}
+                                </span>
+                              )}
                               {photo.gps?.accuracy ? (
                                 <span className="block text-[9px] text-slate-400 font-sans">
                                   ±{Math.round(photo.gps.accuracy)}m

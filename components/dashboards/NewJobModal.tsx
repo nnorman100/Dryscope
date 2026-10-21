@@ -85,7 +85,6 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
             latitude: coords.lat,
             longitude: coords.lng,
             address: address || placeDetails?.formattedAddress || '',
-            accuracy: 5,
             mapUrl: getDirectionsUrl(coords.lat, coords.lng, address),
           }
         : undefined,
