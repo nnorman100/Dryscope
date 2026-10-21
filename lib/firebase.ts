@@ -18,7 +18,7 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
-import { RestorationJob } from './types';
+import { RestorationJob, Tenant } from './types';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -186,4 +186,55 @@ export async function seedJobsIfEmpty(tenantId: string, initialJobs: Restoration
   } catch (err) {
     console.warn('Could not seed initial jobs to Firestore:', err);
   }
+}
+
+/**
+ * Subscribe to every company (superadmins only; firestore.rules refuses anyone else).
+ */
+export function subscribeToTenants(
+  onUpdate: (tenants: Tenant[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    collection(getDb(), 'tenants'),
+    (snapshot) => {
+      const list = snapshot.docs.map((d) => ({ ...(d.data() as Omit<Tenant, 'id'>), id: d.id }));
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      onUpdate(list);
+    },
+    (err) => {
+      console.warn('Could not load companies:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+// Company web names become document IDs and, later, /[orgSlug]/ addresses
+export const ORG_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+
+/**
+ * Create a company. The web name is also its tenantId. Superadmins only.
+ */
+export async function createTenant(name: string, orgSlug: string, createdBy: string): Promise<Tenant> {
+  if (!name.trim()) throw new Error('Enter the company name');
+  if (!ORG_SLUG_PATTERN.test(orgSlug)) {
+    throw new Error('Web name: lowercase letters, numbers and dashes only');
+  }
+  const ref = doc(getDb(), 'tenants', orgSlug);
+  if ((await getDocFromServer(ref)).exists()) throw new Error(`A company already uses "${orgSlug}"`);
+  const tenant: Omit<Tenant, 'id'> = {
+    name: name.trim(),
+    orgSlug,
+    createdAt: new Date().toISOString(),
+    createdBy,
+  };
+  await setDoc(ref, tenant);
+  return { ...tenant, id: orgSlug };
+}
+
+/**
+ * Make a company the one this person works in (users/{uid}.tenantId).
+ */
+export async function setUserTenant(uid: string, tenantId: string): Promise<void> {
+  await setDoc(doc(getDb(), 'users', uid), { tenantId }, { merge: true });
 }

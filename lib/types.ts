@@ -18,6 +18,15 @@ export interface UserAccount {
   avatarColor?: string;
 }
 
+// A restoration company, stored at tenants/{id}
+export interface Tenant {
+  id: string;
+  name: string;
+  orgSlug: string;
+  createdAt?: string;
+  createdBy?: string;
+}
+
 export type LossPerilType = 'water' | 'mold' | 'water_and_mold';
 
 export type MoldConditionLevel =

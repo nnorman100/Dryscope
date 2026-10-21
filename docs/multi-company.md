@@ -22,17 +22,20 @@ One person belongs to one company for now (the playbook's default).
 
 ## Setting up the first company (ADR)
 
-Do this by hand in the Firebase console, in the Firestore database named in
-`firebase.json`, after you have signed in to the app once so your user exists
-in Authentication (copy your UID from there).
+Only one record is made by hand. After you have signed in to the app once
+(so your user exists in Authentication; copy your UID from there), create this
+doc in the Firestore console, in the database named in `firebase.json`:
 
-1. `tenants/adr`: `{ name: "Alert Disaster Restoration", orgSlug: "adr" }`
-2. `users/<your uid>`: `{ tenantId: "adr", platformRole: "superadmin" }`
-3. `tenants/adr/members/<your uid>`: `{ role: "owner", name: "<your name>", email: "<your email>" }`
+- `users/<your uid>`: `{ platformRole: "superadmin" }`
+
+Then reload the app. On the superadmin screen, under Restoration Company
+Workspaces, add "Alert Disaster Restoration" (web name `adr`). Your first
+company becomes the one you work in; "Work in this company" switches between
+companies later.
 
 To add a staff member to a company, create `users/<their uid>` with
 `{ tenantId: "<company>" }` and `tenants/<company>/members/<their uid>` with
-their role.
+their role. There is no screen for this yet.
 
 ## Deploying
 
@@ -52,6 +55,6 @@ must finish building before clients can see their jobs.
   `tenantId` and `role` custom claims on the sign-in token, set by server code
   with the Admin SDK; that needs the App Hosting backend first.
 - No `/[orgSlug]/...` web addresses, no invite flow, and no screen for
-  creating companies or members yet.
+  adding staff members yet.
 - Jobs in the old top-level `jobs` collection aren't moved. Staff can no
   longer reach them.

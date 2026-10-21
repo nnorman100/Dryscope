@@ -201,6 +201,12 @@ describe('companies are kept apart', () => {
     await assertSucceeds(setDoc(doc(admin(), 'tenants/new-co'), { name: 'New Co', orgSlug: 'new' }));
   });
 
+  it('only superadmins list every company and pick which one they work in', async () => {
+    await assertSucceeds(getDocs(collection(admin(), 'tenants')));
+    await assertFails(getDocs(collection(owner(), 'tenants')));
+    await assertSucceeds(setDoc(doc(admin(), 'users/admin'), { tenantId: B }, { merge: true }));
+  });
+
   it('only superadmins create or change companies', async () => {
     await assertFails(setDoc(doc(owner(), 'tenants/new-co'), { name: 'New Co' }));
     await assertFails(updateDoc(doc(owner(), `tenants/${A}`), { name: 'Renamed' }));
