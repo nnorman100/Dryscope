@@ -22,30 +22,21 @@ One person belongs to one company for now (the playbook's default).
 
 ## Setting up the first company (ADR)
 
-Only one record is made by hand. After you have signed in to the app once
-(so your user exists in Authentication; copy your UID from there), create this
-doc in the Firestore console, in the database named in `firebase.json`:
+Create the first superadmin by hand as described in `docs/sign-in.md`
+("Creating the first superadmin"); there is no public sign-up.
 
-- `users/<your uid>`: `{ platformRole: "superadmin" }`
-
-Then reload the app. On the superadmin screen, under Restoration Company
+Then sign in to the app. On the superadmin screen, under Restoration Company
 Workspaces, add "Alert Disaster Restoration" (web name `adr`). Your first
 company becomes the one you work in; "Work in this company" switches between
 companies later.
 
-To add a staff member to a company, create `users/<their uid>` with
-`{ tenantId: "<company>" }` and `tenants/<company>/members/<their uid>` with
-their role. There is no screen for this yet.
+To add a staff member to a company, follow `docs/sign-in.md` ("Creating staff
+accounts"). There is no screen for this yet.
 
 ## Deploying
 
-Deploy the app first, then the rules and the index:
-
-```sh
-firebase deploy --project dryscope-d6f72 --only firestore
-```
-
-The collection group index on `jobs.client.email` in `firestore.indexes.json`
+The rules and the index deploy with the one-time project setup in the README
+("Deploying"). The collection group index on `jobs.client.email` in `firestore.indexes.json`
 must finish building before clients can see their jobs.
 
 ## Not done yet
