@@ -1,75 +1,99 @@
 'use client';
 
 import React, { useState } from 'react';
-import { UserAccount, UserRole } from '@/lib/types';
-import { DEMO_USERS } from '@/lib/mockData';
-import {
-  X,
-  ShieldCheck,
-  Building2,
-  Briefcase,
-  Wrench,
-  User,
-  ArrowRight,
-  Lock,
-  Mail,
-  CheckCircle2,
-  Sparkles,
-} from 'lucide-react';
+import { FirebaseError } from 'firebase/app';
+import { useAuth } from '@/lib/auth';
+import { X, ArrowRight, Lock, Mail, User, Loader2 } from 'lucide-react';
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  currentUser: UserAccount;
-  onSelectUser: (user: UserAccount) => void;
 }
 
-export function LoginModal({
-  isOpen,
-  onClose,
-  currentUser,
-  onSelectUser,
-}: LoginModalProps) {
-  const [selectedRoleTab, setSelectedRoleTab] = useState<UserRole>(currentUser.role);
-  const [emailInput, setEmailInput] = useState(currentUser.email);
-  const [passwordInput, setPasswordInput] = useState('••••••••••••');
-  const [rememberMe, setRememberMe] = useState(true);
+type Mode = 'sign_in' | 'sign_up' | 'reset';
+
+function describeAuthError(err: unknown): string {
+  const code = err instanceof FirebaseError ? err.code : '';
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'That email and password do not match an account.';
+    case 'auth/email-already-in-use':
+      return 'An account already exists for that email. Sign in instead.';
+    case 'auth/weak-password':
+      return 'Use a password of at least 6 characters.';
+    case 'auth/invalid-email':
+      return 'Enter a valid email address.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Wait a minute and try again.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return '';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is not enabled for DryScope yet.';
+    case 'auth/network-request-failed':
+      return 'Could not reach the sign-in service. Check your connection and try again.';
+    case 'auth/unauthorized-domain':
+      return 'This web address is not authorized for sign-in yet.';
+    default:
+      return err instanceof Error ? err.message : 'Sign-in failed. Please try again.';
+  }
+}
+
+export function LoginModal({ isOpen, onClose }: LoginModalProps) {
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
+  const [mode, setMode] = useState<Mode>('sign_in');
+  const [nameInput, setNameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleQuickDemoSelect = (user: UserAccount) => {
-    setSelectedRoleTab(user.role);
-    setEmailInput(user.email);
-    onSelectUser(user);
-    onClose();
+  const run = async (action: () => Promise<void>, closeAfter: boolean) => {
+    setIsBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await action();
+      if (closeAfter) onClose();
+    } catch (err) {
+      const message = describeAuthError(err);
+      if (message) setError(message);
+    } finally {
+      setIsBusy(false);
+    }
   };
 
-  const handleCustomSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const matched = DEMO_USERS.find(
-      (u) =>
-        u.email.toLowerCase() === emailInput.toLowerCase() ||
-        u.role === selectedRoleTab
-    );
-    if (matched) {
-      onSelectUser(matched);
+    if (mode === 'sign_in') {
+      run(() => signInWithEmail(emailInput, passwordInput), true);
+    } else if (mode === 'sign_up') {
+      run(() => signUpWithEmail(nameInput, emailInput, passwordInput), true);
     } else {
-      // Create guest profile for custom input
-      onSelectUser({
-        id: 'custom-' + Date.now(),
-        name: emailInput.split('@')[0],
-        email: emailInput,
-        role: selectedRoleTab,
-        title: `${selectedRoleTab.replace('_', ' ').toUpperCase()}`,
-        companyName: 'DryScope Restoration Services',
-      });
+      run(async () => {
+        await resetPassword(emailInput);
+        setMode('sign_in');
+        setNotice(`If an account exists for ${emailInput}, a reset link is on its way.`);
+      }, false);
     }
-    onClose();
   };
+
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    setError(null);
+    setNotice(null);
+  };
+
+  const title = mode === 'sign_up' ? 'Create your account' : mode === 'reset' ? 'Reset your password' : 'Sign in to DryScope';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         {/* Header */}
         <div className="bg-[#0B192C] text-white px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -77,131 +101,69 @@ export function LoginModal({
               DS
             </div>
             <div>
-              <h2 className="text-lg font-bold">DryScope Universal Login</h2>
+              <h2 className="text-lg font-bold">{title}</h2>
               <p className="text-xs text-slate-300">
-                Multi-Role Disaster Restoration Authentication Portal
+                Staff and homeowners sign in with their own email
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6">
-          {/* 1-Click Instant Demo Access Selector */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                1-Click Instant Demo Credentials
-              </span>
-              <span className="text-[11px] text-slate-400">Click any role to test instantly</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {DEMO_USERS.map((user) => {
-                const isSelected = user.id === currentUser.id;
-                return (
-                  <button
-                    key={user.id}
-                    onClick={() => handleQuickDemoSelect(user)}
-                    className={`p-3 rounded-xl border text-left transition-all flex items-start gap-3 relative ${
-                      isSelected
-                        ? 'border-emerald-500 bg-emerald-50/60 ring-2 ring-emerald-500/20'
-                        : 'border-slate-200 hover:border-slate-300 bg-slate-50/50 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                        user.role === 'superadmin'
-                          ? 'bg-purple-100 text-purple-700'
-                          : user.role === 'owner'
-                          ? 'bg-blue-100 text-blue-800'
-                          : user.role === 'office_staff'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : user.role === 'sales_technician'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-teal-100 text-teal-800'
-                      }`}
-                    >
-                      {user.role === 'superadmin' && <ShieldCheck className="w-4 h-4" />}
-                      {user.role === 'owner' && <Building2 className="w-4 h-4" />}
-                      {user.role === 'office_staff' && <Briefcase className="w-4 h-4" />}
-                      {user.role === 'sales_technician' && <Wrench className="w-4 h-4" />}
-                      {user.role === 'client' && <User className="w-4 h-4" />}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900 truncate">
-                          {user.name}
-                        </span>
-                        {isSelected && (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        )}
-                      </div>
-                      <p className="text-[11px] font-medium text-emerald-700 capitalize">
-                        {user.role.replace('_', ' ')}
-                      </p>
-                      <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="relative my-5">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-3 text-slate-400 font-semibold">
-                Or Sign In With Custom Credentials
-              </span>
-            </div>
-          </div>
-
-          {/* Role Tab Selector */}
-          <div className="flex border border-slate-200 rounded-lg p-1 bg-slate-100 mb-4 text-xs font-semibold">
-            {(
-              [
-                ['superadmin', 'Superadmin'],
-                ['owner', 'Owner'],
-                ['office_staff', 'Office'],
-                ['sales_technician', 'Sales Tech'],
-                ['client', 'Client'],
-              ] as [UserRole, string][]
-            ).map(([role, label]) => (
+        <div className="p-6 space-y-4">
+          {mode !== 'reset' && (
+            <>
               <button
-                key={role}
                 type="button"
-                onClick={() => {
-                  setSelectedRoleTab(role);
-                  const demo = DEMO_USERS.find((u) => u.role === role);
-                  if (demo) setEmailInput(demo.email);
-                }}
-                className={`flex-1 py-1.5 rounded-md transition-all text-center ${
-                  selectedRoleTab === role
-                    ? 'bg-white text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                disabled={isBusy}
+                onClick={() => run(signInWithGoogle, true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-sm font-semibold text-slate-800 transition-colors disabled:opacity-60"
               >
-                {label}
+                <svg className="w-4 h-4" viewBox="0 0 48 48" aria-hidden="true">
+                  <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+                  <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+                  <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+                  <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+                </svg>
+                Continue with Google
               </button>
-            ))}
-          </div>
 
-          {/* Form */}
-          <form onSubmit={handleCustomSubmit} className="space-y-3.5">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-3 text-slate-400 font-semibold">Or use email</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-3.5">
+            {mode === 'sign_up' && (
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Your name</label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    autoComplete="name"
+                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
-                Authorized Email Address
-              </label>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Email address</label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -209,53 +171,85 @@ export function LoginModal({
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   required
-                  placeholder="name@dryscope.io"
+                  autoComplete="email"
+                  placeholder="you@example.com"
                   className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
                 />
               </div>
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-medium text-slate-700">
-                  Password / Access Token
-                </label>
-                <a href="#forgot" onClick={(e) => e.preventDefault()} className="text-[11px] text-emerald-600 hover:underline">
-                  Forgot access?
-                </a>
+            {mode !== 'reset' && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-slate-700">Password</label>
+                  {mode === 'sign_in' && (
+                    <button
+                      type="button"
+                      onClick={() => switchMode('reset')}
+                      className="text-[11px] text-emerald-600 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    required
+                    minLength={6}
+                    autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
+                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
+                  />
+                </div>
               </div>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="password"
-                  value={passwordInput}
-                  onChange={(e) => setPasswordInput(e.target.value)}
-                  required
-                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
-                />
-              </div>
-            </div>
+            )}
 
-            <div className="flex items-center justify-between pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded text-emerald-600 focus:ring-emerald-500"
-                />
-                Remember this device on-site
-              </label>
+            {error && (
+              <p role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {error}
+              </p>
+            )}
+            {notice && (
+              <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                {notice}
+              </p>
+            )}
 
-              <button
-                type="submit"
-                className="px-5 py-2 rounded-lg bg-[#0B192C] hover:bg-slate-900 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-blue-950/20"
-              >
-                <span>Authorize & Enter</span>
-                <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={isBusy}
+              className="w-full px-5 py-2.5 rounded-lg bg-[#0B192C] hover:bg-slate-900 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-blue-950/20 disabled:opacity-60"
+            >
+              {isBusy ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <>
+                  <span>
+                    {mode === 'sign_in' ? 'Sign in' : mode === 'sign_up' ? 'Create account' : 'Send reset link'}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
+                </>
+              )}
+            </button>
           </form>
+
+          <p className="text-center text-xs text-slate-500">
+            {mode === 'sign_in' ? (
+              <>
+                New here?{' '}
+                <button type="button" onClick={() => switchMode('sign_up')} className="text-emerald-700 font-semibold hover:underline">
+                  Create an account
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => switchMode('sign_in')} className="text-emerald-700 font-semibold hover:underline">
+                Back to sign in
+              </button>
+            )}
+          </p>
         </div>
       </div>
     </div>

@@ -6,22 +6,77 @@ service cloud.firestore {
       return docId is string && docId.size() > 0 && docId.size() <= 128;
     }
 
-    // User accounts collection
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function myRole() {
+      return signedIn() && exists(userDoc()) ? get(userDoc()).data.role : null;
+    }
+
+    // Company staff. Keep in sync with STAFF_ROLES in lib/roles.ts.
+    function isStaff() {
+      return myRole() in ['superadmin', 'owner', 'office_staff', 'sales_technician'];
+    }
+
+    function isSuperadmin() {
+      return myRole() == 'superadmin';
+    }
+
+    function isManager() {
+      return myRole() in ['superadmin', 'owner'];
+    }
+
+    // A homeowner signed in with the verified email recorded on the job
+    function isJobClient(job) {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email != null
+        && job.client.email == request.auth.token.email;
+    }
+
+    // User accounts. A /users/{uid} doc with a staff role is what grants staff
+    // access, so only managers write them and nobody can change their own role.
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && (request.auth.uid == userId || request.auth.token.role == 'superadmin');
+      allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+
+      // Superadmins manage anyone; owners manage everyone except superadmins
+      allow create: if isSuperadmin()
+        || (myRole() == 'owner' && request.resource.data.role != 'superadmin');
+      allow update: if isSuperadmin()
+        || (myRole() == 'owner'
+            && resource.data.role != 'superadmin'
+            && request.resource.data.role != 'superadmin')
+        || (request.auth.uid == userId
+            && request.resource.data.role == resource.data.role);
+      allow delete: if isSuperadmin()
+        || (myRole() == 'owner' && resource.data.role != 'superadmin');
     }
 
-    // Restoration jobs collection
+    // Restoration jobs. Staff see and edit all jobs; a client sees only jobs
+    // carrying their email and may only sign the authorization.
     match /jobs/{jobId} {
-      allow read: if true; // Publicly readable for client signing portal & field technicians
-      allow create, update: if isValidId(jobId);
-      allow delete: if request.auth != null;
+      allow read: if isStaff() || isJobClient(resource.data);
+
+      allow create: if isStaff()
+        && isValidId(jobId)
+        && request.resource.data.id == jobId;
+
+      allow update: if (isStaff() && request.resource.data.id == jobId)
+        || (isJobClient(resource.data)
+            && resource.data.signature.isSigned != true
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['signature', 'status', 'updatedAt'])
+            && request.resource.data.signature.isSigned == true
+            && request.resource.data.status == 'Client Authorized');
+
+      allow delete: if myRole() in ['superadmin', 'owner', 'office_staff'];
     }
 
-    // System connection test doc
-    match /test/{docId} {
-      allow read, write: if true;
-    }
+    // Everything else, including the old public /test collection, is closed.
   }
 }

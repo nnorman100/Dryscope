@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { UserAccount, RestorationJob } from '@/lib/types';
-import { DEMO_USERS, INITIAL_JOBS } from '@/lib/mockData';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { RestorationJob } from '@/lib/types';
+import { INITIAL_JOBS } from '@/lib/mockData';
 import { Navbar } from '@/components/Navbar';
 import { LandingPage } from '@/components/landing/LandingPage';
 import { TechPipelineDashboard } from '@/components/dashboards/TechPipelineDashboard';
@@ -13,130 +13,186 @@ import { OwnerDashboard } from '@/components/dashboards/OwnerDashboard';
 import { SuperadminDashboard } from '@/components/dashboards/SuperadminDashboard';
 import { ClientPortal } from '@/components/dashboards/ClientPortal';
 import { LoginModal } from '@/components/auth/LoginModal';
+import { ClientAccessNotice } from '@/components/auth/ClientAccessNotice';
 import { DocumentSuiteModal } from '@/components/documents/DocumentSuiteModal';
 import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
 import {
   subscribeToJobs,
+  subscribeToClientJobs,
   syncJobToFirestore,
   seedJobsIfEmpty,
   testConnection,
 } from '@/lib/firebase';
+import { AuthProvider, useAuth } from '@/lib/auth';
+import { canOpenView, homeViewForRole, isStaffRole } from '@/lib/roles';
+import { Loader2 } from 'lucide-react';
 
 const LOCAL_STORAGE_KEY_JOBS = 'dryscope_restoration_jobs_v1';
-const LOCAL_STORAGE_KEY_USER = 'dryscope_current_user_v1';
+// Held the demo role picker's user before real sign-in; cleared on load
+const LEGACY_LOCAL_STORAGE_KEY_USER = 'dryscope_current_user_v1';
 
-export default function Home() {
-  const [jobs, setJobs] = useState<RestorationJob[]>(INITIAL_JOBS);
-  const [currentUser, setCurrentUser] = useState<UserAccount>(DEMO_USERS[3]);
-  const [currentView, setCurrentView] = useState<string>('landing');
-  const [activeJobId, setActiveJobId] = useState<string>(INITIAL_JOBS[0].id);
+function readUrlParam(name: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    // Older client portal links used ?role=client instead of ?view=client
+    if (name === 'view' && !params.get('view') && params.get('role') === 'client') return 'client';
+    return params.get(name);
+  } catch {
+    return null;
+  }
+}
+
+function readSavedJobs(): RestorationJob[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY_JOBS) || 'null');
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export default function Page() {
+  return (
+    <AuthProvider>
+      <Home />
+    </AuthProvider>
+  );
+}
+
+function Home() {
+  const { status, account, emailVerified, signOut } = useAuth();
+  const role = account?.role;
+  const isStaff = isStaffRole(role);
+
+  // Jobs and the chosen view are kept per signed-in user, so signing out or
+  // switching accounts never shows the previous person's data or screen
+  const [jobsState, setJobsState] = useState<{ uid: string; jobs: RestorationJob[] } | null>(null);
+  const [viewChoice, setViewChoice] = useState<{ uid: string; view: string } | null>(null);
+  // A view asked for before sign-in (from ?view= or a landing page button),
+  // opened once we know the user's role allows it
+  const [requestedView, setRequestedView] = useState<string | null>(() => readUrlParam('view'));
+  const [activeJobId, setActiveJobId] = useState<string>(() => readUrlParam('jobId') || INITIAL_JOBS[0].id);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
-
-  // True once saved state has been read from localStorage; saving waits for it so
-  // the demo data never overwrites the user's saved jobs on reload
-  const [hasLoadedSavedState, setHasLoadedSavedState] = useState<boolean>(false);
-
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [isDocSuiteOpen, setIsDocSuiteOpen] = useState<boolean>(false);
   const [docSuiteTargetJob, setDocSuiteTargetJob] = useState<RestorationJob | null>(null);
 
-  // Hydrate client-side state from URL query params and localStorage after mount
+  const uid = account?.id;
+
+  // Before the first update for this user: staff start from their saved jobs
+  // (or the demo jobs), clients from nothing until their own jobs load
+  const jobs = useMemo(() => {
+    if (jobsState && jobsState.uid === uid) return jobsState.jobs;
+    if (isStaff) return readSavedJobs() || INITIAL_JOBS;
+    return role === 'client' ? [] : INITIAL_JOBS;
+  }, [jobsState, uid, isStaff, role]);
+
+  const setJobs = useCallback(
+    (update: RestorationJob[] | ((prev: RestorationJob[]) => RestorationJob[])) => {
+      if (!uid) return;
+      setJobsState((prev) => {
+        const base =
+          prev && prev.uid === uid ? prev.jobs : isStaff ? readSavedJobs() || INITIAL_JOBS : [];
+        return { uid, jobs: typeof update === 'function' ? update(base) : update };
+      });
+    },
+    [uid, isStaff]
+  );
+
+  let currentView = 'landing';
+  if (role) {
+    const chosen = viewChoice && viewChoice.uid === uid ? viewChoice.view : requestedView;
+    currentView = chosen && canOpenView(role, chosen) ? chosen : homeViewForRole(role);
+  } else if (viewChoice && !viewChoice.uid) {
+    currentView = viewChoice.view;
+  }
+
+  // The demo role picker's saved user is meaningless now that sign-in is real
   useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        const savedJobs = localStorage.getItem(LOCAL_STORAGE_KEY_JOBS);
-        if (savedJobs) {
-          const parsed = JSON.parse(savedJobs);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setJobs(parsed);
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load saved jobs from localStorage', e);
-      }
-
-      try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const roleParam = urlParams.get('role');
-        const viewParam = urlParams.get('view');
-        const jobParam = urlParams.get('jobId');
-
-        if (roleParam) {
-          const matched = DEMO_USERS.find((u) => u.role === roleParam);
-          if (matched) setCurrentUser(matched);
-          if (roleParam === 'client') setCurrentView('client');
-          else if (roleParam === 'sales_technician') setCurrentView('tech_pipeline');
-          else if (roleParam === 'office_staff') setCurrentView('office');
-          else if (roleParam === 'owner') setCurrentView('owner');
-          else if (roleParam === 'superadmin') setCurrentView('superadmin');
-        } else {
-          const savedUser = localStorage.getItem(LOCAL_STORAGE_KEY_USER);
-          if (savedUser) {
-            const parsed = JSON.parse(savedUser);
-            if (parsed && parsed.id) setCurrentUser(parsed);
-          }
-        }
-
-        if (viewParam) {
-          setCurrentView(viewParam);
-        }
-
-        if (jobParam) {
-          setActiveJobId(jobParam);
-        }
-      } catch (e) {
-        console.warn('Failed to parse URL params or saved user', e);
-      }
-
-      setHasLoadedSavedState(true);
-    }, 0);
-
-    return () => clearTimeout(timer);
+    try {
+      localStorage.removeItem(LEGACY_LOCAL_STORAGE_KEY_USER);
+    } catch (e) {}
   }, []);
 
-  // Real-time Firestore Cloud Subscription & Offline Persistence
+  // Never leave the company's jobs cached on a device nobody is signed in to
   useEffect(() => {
+    if (status === 'signed_out') {
+      try {
+        localStorage.removeItem(LOCAL_STORAGE_KEY_JOBS);
+      } catch (e) {}
+    }
+  }, [status]);
+
+  // Live jobs for whoever is signed in: staff get the whole company's jobs,
+  // clients only the jobs carrying their verified email
+  useEffect(() => {
+    if (status !== 'signed_in' || !role) return;
+
     let unsubscribe: (() => void) | undefined;
-    testConnection()
-      .then(() => {
-        setIsCloudConnected(true);
-        seedJobsIfEmpty(INITIAL_JOBS).catch(console.warn);
-        unsubscribe = subscribeToJobs(
-          (cloudJobs) => {
-            if (Array.isArray(cloudJobs) && cloudJobs.length > 0) {
-              setJobs(cloudJobs);
+    let cancelled = false;
+
+    if (isStaffRole(role)) {
+      testConnection()
+        .then(() => {
+          if (cancelled) return;
+          setIsCloudConnected(true);
+          seedJobsIfEmpty(INITIAL_JOBS).catch(console.warn);
+          unsubscribe = subscribeToJobs(
+            (cloudJobs) => {
+              if (Array.isArray(cloudJobs) && cloudJobs.length > 0) {
+                setJobs(cloudJobs);
+              }
+            },
+            (err) => {
+              console.warn('Firestore subscription fallback:', err);
             }
-          },
-          (err) => {
-            console.warn('Firestore subscription fallback:', err);
-          }
-        );
-      })
-      .catch(() => {
-        setIsCloudConnected(false);
+          );
+        })
+        .catch(() => {
+          setIsCloudConnected(false);
+        });
+    } else if (emailVerified && account?.email) {
+      unsubscribe = subscribeToClientJobs(account.email, setJobs, (err) => {
+        console.warn('Could not load client jobs:', err);
       });
+    }
 
     return () => {
+      cancelled = true;
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [status, role, account?.email, emailVerified, setJobs]);
 
-  // Sync to localStorage only after saved state has loaded (prevent overwriting saved data with initial data on first mount)
+  // Cache staff jobs locally once they have changed for this user. Clients
+  // never cache jobs on the device.
   useEffect(() => {
-    if (hasLoadedSavedState) {
+    if (isStaff && jobsState && jobsState.uid === uid) {
       try {
-        localStorage.setItem(LOCAL_STORAGE_KEY_JOBS, JSON.stringify(jobs));
+        localStorage.setItem(LOCAL_STORAGE_KEY_JOBS, JSON.stringify(jobsState.jobs));
       } catch (e) {}
     }
-  }, [jobs, hasLoadedSavedState]);
+  }, [jobsState, uid, isStaff]);
 
-  useEffect(() => {
-    if (hasLoadedSavedState) {
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY_USER, JSON.stringify(currentUser));
-      } catch (e) {}
+  const changeView = (view: string) => {
+    if (!role) {
+      // Signed out: anything past the landing page needs sign-in first
+      if (view === 'landing') {
+        setViewChoice({ uid: '', view: 'landing' });
+      } else {
+        setRequestedView(view);
+        setIsLoginModalOpen(true);
+      }
+      return;
     }
-  }, [currentUser, hasLoadedSavedState]);
+    setViewChoice({ uid: uid!, view: canOpenView(role, view) ? view : homeViewForRole(role) });
+  };
+
+  const handleSignOut = () => {
+    setRequestedView(null);
+    signOut().catch(console.warn);
+  };
 
   const activeJob = jobs.find((j) => j.id === activeJobId) || jobs[0];
 
@@ -146,15 +202,6 @@ export default function Home() {
     syncJobToFirestore(updated).catch((err) => {
       console.warn('Cloud sync error (queued locally):', err);
     });
-  };
-
-  const handleSwitchUser = (user: UserAccount) => {
-    setCurrentUser(user);
-    if (user.role === 'superadmin') setCurrentView('superadmin');
-    else if (user.role === 'owner') setCurrentView('owner');
-    else if (user.role === 'office_staff') setCurrentView('office');
-    else if (user.role === 'sales_technician') setCurrentView('tech_pipeline');
-    else if (user.role === 'client') setCurrentView('client');
   };
 
   const handleCreateNewEstimate = (customJob?: Partial<RestorationJob>) => {
@@ -212,12 +259,12 @@ export default function Home() {
       gpsCoordinates: customJob?.gpsCoordinates,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      assignedTechId: currentUser.id,
+      assignedTechId: account?.id || '',
     };
 
     setJobs((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
-    setCurrentView('tech');
+    changeView('tech');
     syncJobToFirestore(newJob).catch(console.warn);
   };
 
@@ -236,99 +283,94 @@ export default function Home() {
 
     setJobs((prev) => [restored, ...prev]);
     setActiveJobId(restored.id);
-    setCurrentView('office');
+    changeView('office');
     syncJobToFirestore(restored).catch(console.warn);
   };
 
   const handleOpenDocSuiteForJob = (target?: RestorationJob) => {
-    setDocSuiteTargetJob(target || activeJob);
+    const job = target || activeJob;
+    if (!job) return;
+    setDocSuiteTargetJob(job);
     setIsDocSuiteOpen(true);
   };
+
+  const docSuiteJob = docSuiteTargetJob || activeJob;
+
+  const clientHasNothingToSee = role === 'client' && jobs.length === 0;
 
   return (
     <GoogleMapsProvider>
       <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans">
-      {/* Top Universal Navbar with 1-Click Role Switcher */}
+      {/* Top Universal Navbar */}
       <Navbar
-        currentUser={currentUser}
-        onSwitchUser={handleSwitchUser}
-        activeJob={activeJob}
+        currentUser={account}
+        activeJob={role ? activeJob : undefined}
         jobs={jobs.filter((j) => !j.isArchived)}
         onSelectJob={(j) => setActiveJobId(j.id)}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onSignOut={handleSignOut}
         onOpenDocSuite={() => handleOpenDocSuiteForJob(activeJob)}
         currentView={currentView}
-        onChangeView={setCurrentView}
+        onChangeView={changeView}
+        canOpenView={(view) => (role ? canOpenView(role, view) : view === 'landing')}
         isCloudConnected={isCloudConnected}
       />
 
       {/* Main View Router */}
       <main className="flex-1 flex flex-col">
-        {currentView === 'landing' && (
+        {status === 'loading' && (
+          <div className="flex-1 flex items-center justify-center text-slate-500 text-sm gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Checking sign-in…
+          </div>
+        )}
+
+        {status !== 'loading' && currentView === 'landing' && (
           <LandingPage
-            onNavigate={(view) => {
-              setCurrentView(view);
-              // auto align user role if navigating into role-specific dashboard
-              if (view === 'tech') setCurrentUser(DEMO_USERS[3]);
-              else if (view === 'tech_pipeline') setCurrentUser(DEMO_USERS[3]);
-              else if (view === 'office') setCurrentUser(DEMO_USERS[2]);
-              else if (view === 'office_archive') setCurrentUser(DEMO_USERS[2]);
-              else if (view === 'owner') setCurrentUser(DEMO_USERS[1]);
-              else if (view === 'client') setCurrentUser(DEMO_USERS[4]);
-              else if (view === 'superadmin') setCurrentUser(DEMO_USERS[0]);
-            }}
+            onNavigate={changeView}
             onOpenLogin={() => setIsLoginModalOpen(true)}
           />
         )}
 
         {/* 1. Sales Technician Dedicated Pipeline Dashboard */}
-        {currentView === 'tech_pipeline' && (
+        {isStaff && currentView === 'tech_pipeline' && (
           <TechPipelineDashboard
             jobs={jobs}
             activeJob={activeJob}
             onSelectJob={(j) => setActiveJobId(j.id)}
             onOpenScopingWorkspace={(j) => {
               if (j) setActiveJobId(j.id);
-              setCurrentView('tech');
+              changeView('tech');
             }}
             onCreateNewEstimate={handleCreateNewEstimate}
-            onNavigateToPortal={() => {
-              setCurrentUser(DEMO_USERS[4]);
-              setCurrentView('client');
-            }}
+            onNavigateToPortal={() => changeView('client')}
           />
         )}
 
         {/* 2. Sales Technician Dedicated Job Scoping Workspace */}
-        {currentView === 'tech' && (
+        {isStaff && activeJob && currentView === 'tech' && (
           <TechFieldDashboard
             job={activeJob}
             onUpdateJob={handleUpdateJob}
-            onNavigateToPortal={() => {
-              setCurrentUser(DEMO_USERS[4]);
-              setCurrentView('client');
-            }}
-            onNavigateToPipeline={() => setCurrentView('tech_pipeline')}
+            onNavigateToPortal={() => changeView('client')}
+            onNavigateToPipeline={() => changeView('tech_pipeline')}
             onOpenDocSuite={() => handleOpenDocSuiteForJob(activeJob)}
           />
         )}
 
         {/* 3. Office Staff Active Estimating Matrix */}
-        {currentView === 'office' && (
+        {isStaff && activeJob && currentView === 'office' && (
           <OfficeDashboard
             job={activeJob}
             onUpdateJob={handleUpdateJob}
             onOpenDocSuite={() => handleOpenDocSuiteForJob(activeJob)}
-            onNavigateToPortal={() => {
-              setCurrentUser(DEMO_USERS[4]);
-              setCurrentView('client');
-            }}
-            onOpenArchive={() => setCurrentView('office_archive')}
+            onNavigateToPortal={() => changeView('client')}
+            onOpenArchive={() => changeView('office_archive')}
           />
         )}
 
         {/* 4. Office Staff Dedicated Archived Estimates Vault */}
-        {currentView === 'office_archive' && (
+        {isStaff && currentView === 'office_archive' && (
           <OfficeArchiveVault
             jobs={jobs}
             onSelectJob={(j) => {
@@ -336,27 +378,28 @@ export default function Home() {
             }}
             onRestoreJob={handleRestoreArchivedJob}
             onOpenDocSuite={(j) => handleOpenDocSuiteForJob(j)}
-            onBackToActive={() => setCurrentView('office')}
+            onBackToActive={() => changeView('office')}
           />
         )}
 
         {/* 5. Owner Executive Command Dashboard */}
-        {currentView === 'owner' && (
+        {isStaff && currentView === 'owner' && (
           <OwnerDashboard
             jobs={jobs.filter((j) => !j.isArchived)}
             onSelectJob={(j) => {
               setActiveJobId(j.id);
-              setCurrentView('office');
+              changeView('office');
             }}
-            onNavigateToOffice={() => setCurrentView('office')}
+            onNavigateToOffice={() => changeView('office')}
           />
         )}
 
         {/* 6. Superadmin Platform Directory & Console */}
-        {currentView === 'superadmin' && <SuperadminDashboard />}
+        {role === 'superadmin' && currentView === 'superadmin' && <SuperadminDashboard />}
 
         {/* 7. Client Recovery Portal */}
-        {currentView === 'client' && (
+        {role && currentView === 'client' && clientHasNothingToSee && <ClientAccessNotice />}
+        {role && currentView === 'client' && activeJob && (
           <ClientPortal
             job={activeJob}
             onUpdateJob={handleUpdateJob}
@@ -365,20 +408,17 @@ export default function Home() {
         )}
       </main>
 
-      {/* Universal Login Modal */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        currentUser={currentUser}
-        onSelectUser={handleSwitchUser}
-      />
+      {/* Sign-in */}
+      <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
 
       {/* Official 4-Document Suite & PDF Print Modal */}
-      <DocumentSuiteModal
-        isOpen={isDocSuiteOpen}
-        onClose={() => setIsDocSuiteOpen(false)}
-        job={docSuiteTargetJob || activeJob}
-      />
+      {docSuiteJob && (
+        <DocumentSuiteModal
+          isOpen={isDocSuiteOpen}
+          onClose={() => setIsDocSuiteOpen(false)}
+          job={docSuiteJob}
+        />
+      )}
     </div>
   </GoogleMapsProvider>
   );

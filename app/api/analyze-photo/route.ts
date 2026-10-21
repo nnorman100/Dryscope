@@ -1,7 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaffRequest } from '@/lib/serverAuth';
 
 export async function POST(req: NextRequest) {
+  const { errorResponse } = await requireStaffRequest(req);
+  if (errorResponse) return errorResponse;
+
   try {
     const { imageBase64, categoryHint, roomName } = await req.json();
 

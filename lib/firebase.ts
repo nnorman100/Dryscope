@@ -13,9 +13,10 @@ import {
   deleteDoc,
   getDocs,
   query,
-  orderBy,
+  where,
   Unsubscribe,
 } from 'firebase/firestore';
+import { getAuth, Auth } from 'firebase/auth';
 import { RestorationJob } from './types';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -23,6 +24,8 @@ import firebaseConfig from '../firebase-applet-config.json';
 const app: FirebaseApp = !getApps().length
   ? initializeApp(firebaseConfig)
   : getApp();
+
+export const auth: Auth = getAuth(app);
 
 // Database ID specified in firebase-applet-config.json
 const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
@@ -100,6 +103,38 @@ export function subscribeToJobs(
     },
     (err) => {
       console.warn('Firestore onSnapshot error, falling back to local operations:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
+ * Subscribe to the jobs a signed-in client may see: those whose client email is
+ * their own. The equality filter is what lets firestore.rules allow the query.
+ */
+export function subscribeToClientJobs(
+  email: string,
+  onUpdate: (jobs: RestorationJob[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const firestore = getDb();
+  const jobsQuery = query(collection(firestore, 'jobs'), where('client.email', '==', email));
+
+  return onSnapshot(
+    jobsQuery,
+    (snapshot) => {
+      const jobsList: RestorationJob[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data && data.id) {
+          jobsList.push(data as RestorationJob);
+        }
+      });
+      jobsList.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+      onUpdate(jobsList);
+    },
+    (err) => {
+      console.warn('Firestore client jobs error:', err);
       if (onError) onError(err);
     }
   );

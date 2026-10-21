@@ -3,10 +3,15 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
+import { AuthError, requireStaffToken } from './lib/serverAuth';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
 const port = 3000;
+
+// A Live socket must send { type: 'auth', token } with a staff Firebase ID token
+// within this window, before any Gemini session is opened.
+const LIVE_AUTH_TIMEOUT_MS = 10_000;
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
@@ -302,9 +307,39 @@ app.prepare().then(() => {
     }
   });
 
-  wss.on('connection', async (clientWs: WebSocket) => {
+  wss.on('connection', (clientWs: WebSocket) => {
     console.log('[GeminiLive] Client connected to /api/live-ws');
 
+    const authTimer = setTimeout(() => {
+      clientWs.send(JSON.stringify({ type: 'error', message: 'Sign-in required for Gemini Live' }));
+      clientWs.close(4401, 'Unauthorized');
+    }, LIVE_AUTH_TIMEOUT_MS);
+
+    clientWs.once('message', async (data: Buffer | string) => {
+      clearTimeout(authTimer);
+      try {
+        const payload = JSON.parse(data.toString());
+        if (payload?.type !== 'auth' || typeof payload.token !== 'string') {
+          throw new AuthError('Sign-in required for Gemini Live', 401);
+        }
+        const caller = await requireStaffToken(payload.token);
+        console.log(`[GeminiLive] Authorized ${caller.uid} (${caller.role})`);
+      } catch (authErr) {
+        const message = authErr instanceof Error ? authErr.message : 'Sign-in required for Gemini Live';
+        const code = authErr instanceof AuthError && authErr.status === 403 ? 4403 : 4401;
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(JSON.stringify({ type: 'error', message }));
+          clientWs.close(code, 'Unauthorized');
+        }
+        return;
+      }
+      await startLiveRelay(clientWs);
+    });
+
+    clientWs.on('close', () => clearTimeout(authTimer));
+  });
+
+  async function startLiveRelay(clientWs: WebSocket) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.error('[GeminiLive] Missing GEMINI_API_KEY');
@@ -392,6 +427,12 @@ app.prepare().then(() => {
         }
       });
 
+      // The browser may have gone away while the Gemini session was opening
+      if (clientWs.readyState !== WebSocket.OPEN) {
+        liveSession.close();
+        return;
+      }
+
       console.log('[GeminiLive] Connected to gemini-3.8-live successfully');
       clientWs.send(JSON.stringify({ type: 'connected', model: 'gemini-3.8-live', voice: 'Zephyr' }));
 
@@ -440,7 +481,7 @@ app.prepare().then(() => {
         clientWs.close();
       }
     }
-  });
+  }
 
   server.listen(port, () => {
     console.log(`> Server ready on http://${hostname}:${port}`);

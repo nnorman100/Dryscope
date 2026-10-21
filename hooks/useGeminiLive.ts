@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { getIdToken } from '@/lib/auth';
 import { RestorationJob, LossPerilType, MoldConditionLevel, StandardizedAction, ThermalReading } from '@/lib/types';
 
 export interface GeminiLiveToolCall {
@@ -37,6 +38,8 @@ export function useGeminiLive({ job, onUpdateJob, noiseGateLoudSite = false }: U
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const isModelSpeakingRef = useRef<boolean>(false);
   const isMutedRef = useRef<boolean>(false);
+  // True once the server has accepted our sign-in and opened the Gemini session
+  const isSessionReadyRef = useRef<boolean>(false);
   const isSpeakerMutedRef = useRef<boolean>(false);
   const noiseGateLoudSiteRef = useRef<boolean>(noiseGateLoudSite);
   const jobRef = useRef<RestorationJob>(job);
@@ -347,8 +350,12 @@ export function useGeminiLive({ job, onUpdateJob, noiseGateLoudSite = false }: U
 
     setIsConnecting(true);
     setConnectionError(null);
+    isSessionReadyRef.current = false;
 
     try {
+      // Fetch the sign-in token first so a signed-out user never opens the mic
+      const idToken = await getIdToken();
+
       // 1. Get user media with hardware noise suppression
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -403,21 +410,25 @@ export function useGeminiLive({ job, onUpdateJob, noiseGateLoudSite = false }: U
 
       ws.onopen = () => {
         console.log('[useGeminiLive] Connected to /api/live-ws');
-        setIsConnected(true);
-        setIsConnecting(false);
-
-        // Send initial job context text prompt
-        ws.send(JSON.stringify({
-          type: 'text',
-          text: `Starting session for Job #${jobRef.current.jobId}. Client: ${jobRef.current.client.name}, Address: ${jobRef.current.client.address}. Current Peril: ${jobRef.current.lossType || 'water'}. Please greet the technician and verify the loss area.`
-        }));
+        // The server opens the Gemini session only after it accepts this token
+        ws.send(JSON.stringify({ type: 'auth', token: idToken }));
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === 'audio' && data.audio) {
+          if (data.type === 'connected') {
+            isSessionReadyRef.current = true;
+            setIsConnected(true);
+            setIsConnecting(false);
+
+            // Send initial job context text prompt
+            ws.send(JSON.stringify({
+              type: 'text',
+              text: `Starting session for Job #${jobRef.current.jobId}. Client: ${jobRef.current.client.name}, Address: ${jobRef.current.client.address}. Current Peril: ${jobRef.current.lossType || 'water'}. Please greet the technician and verify the loss area.`
+            }));
+          } else if (data.type === 'audio' && data.audio) {
             playPcmAudioChunk(data.audio);
           } else if (data.type === 'interrupted') {
             stopPlayback();
@@ -443,6 +454,7 @@ export function useGeminiLive({ job, onUpdateJob, noiseGateLoudSite = false }: U
 
       ws.onclose = () => {
         console.log('[useGeminiLive] WebSocket closed');
+        isSessionReadyRef.current = false;
         setIsConnected(false);
         setIsConnecting(false);
         stopPlayback();
@@ -450,7 +462,7 @@ export function useGeminiLive({ job, onUpdateJob, noiseGateLoudSite = false }: U
 
       // 4. Process live microphone samples and stream to WebSocket
       processor.onaudioprocess = (e) => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN || !isSessionReadyRef.current) return;
         if (isMutedRef.current) return;
 
         const inputBuffer = e.inputBuffer.getChannelData(0);
