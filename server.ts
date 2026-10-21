@@ -7,7 +7,8 @@ import { AuthError, requireStaffToken } from './lib/serverAuth';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
-const port = 3000;
+// Firebase App Hosting (Cloud Run) sets PORT for us.
+const port = Number(process.env.PORT) || 3000;
 
 // A Live socket must send { type: 'auth', token } with a staff Firebase ID token
 // within this window, before any Gemini session is opened.

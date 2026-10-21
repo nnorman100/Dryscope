@@ -1,0 +1,33 @@
+# Firebase App Hosting settings for Dryscope.
+# https://firebase.google.com/docs/app-hosting/configure
+
+# server.ts is a custom server (it hosts the Gemini Live voice socket at
+# /api/live-ws), so we bypass App Hosting's Next.js adapter and ship the
+# whole workspace, node_modules included.
+scripts:
+  buildCommand: npm run build
+  runCommand: npm start
+
+outputFiles:
+  serverApp:
+    include: [.]
+
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  - variable: NODE_ENV
+    value: production
+    availability:
+      - RUNTIME
+
+  # Create once with `firebase apphosting:secrets:set gemini-api-key`
+  # or in the console under App Hosting > Settings > Environment.
+  - variable: GEMINI_API_KEY
+    secret: gemini-api-key
+    availability:
+      - RUNTIME
