@@ -154,12 +154,27 @@ export function subscribeToClientJobs(
 /**
  * Real-time save / sync of a single restoration job to Firestore
  */
+// Firestore rejects undefined field values; optional job fields left unset are omitted instead
+function withoutUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v !== undefined).map(withoutUndefined) as T;
+  }
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, withoutUndefined(v)])
+    ) as T;
+  }
+  return value;
+}
+
 export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
   const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
-  const payload = {
+  const payload = withoutUndefined({
     ...job,
     updatedAt: new Date().toISOString(),
-  };
+  });
   await setDoc(jobRef, payload, { merge: true });
 }
 

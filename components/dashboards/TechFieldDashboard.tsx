@@ -100,6 +100,7 @@ export function TechFieldDashboard({
   const [photoCategory, setPhotoCategory] = useState<'damage' | 'moisture_meter' | 'thermal'>('moisture_meter');
   const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
   const [analyzedResult, setAnalyzedResult] = useState<any>(null);
+  const [photoAnalysisError, setPhotoAnalysisError] = useState<string | null>(null);
   const [selectedMapPhoto, setSelectedMapPhoto] = useState<PhotoEvidence | null>(null);
   const [copiedCoordId, setCopiedCoordId] = useState<string | null>(null);
   const [previewEnlargePhoto, setPreviewEnlargePhoto] = useState<PhotoEvidence | null>(null);
@@ -155,14 +156,14 @@ export function TechFieldDashboard({
         latitude: coords.latitude,
         longitude: coords.longitude,
         address: job.client.address,
-        accuracy: coords.accuracy || 5,
+        accuracy: coords.accuracy,
         mapUrl: getDirectionsUrl(coords.latitude, coords.longitude, job.client.address),
       },
       updatedAt: new Date().toISOString(),
     };
     onUpdateJob(updatedJob);
     setGpsCalibrateMessage(
-      `✓ GPS Calibrated: ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)} (±${Math.round(coords.accuracy || 5)}m)`
+      `✓ GPS Calibrated: ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}${coords.accuracy ? ` (±${Math.round(coords.accuracy)}m)` : ''}`
     );
     setTimeout(() => setGpsCalibrateMessage(null), 4000);
   };
@@ -358,6 +359,7 @@ export function TechFieldDashboard({
       const base64 = uploadEvent.target?.result as string;
       setPhotoPreview(base64);
       setAnalyzedResult(null);
+      setPhotoAnalysisError(null);
 
       // Automatically capture browser geolocation via the usePhotoGeolocation hook
       const gpsResult = await captureLocation(
@@ -384,7 +386,7 @@ export function TechFieldDashboard({
         technicalDescription: 'Photo captured on site with browser geolocation verification.',
         clientSummary: 'Field inspection photo captured at property.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        gps: {
+        gps: gpsResult ? {
           latitude: gpsResult.latitude,
           longitude: gpsResult.longitude,
           accuracy: gpsResult.accuracy,
@@ -395,7 +397,7 @@ export function TechFieldDashboard({
           directionsUrl: gpsResult.directionsUrl,
           capturedAt: gpsResult.capturedAt,
           source: gpsResult.source,
-        },
+        } : undefined,
       };
 
       // Store these coordinates within the job's photos array immediately
@@ -404,13 +406,15 @@ export function TechFieldDashboard({
       onUpdateJob({
         ...job,
         photos: updatedPhotos,
-        gpsCoordinates: {
-          latitude: gpsResult.latitude,
-          longitude: gpsResult.longitude,
-          address: gpsResult.address || job.client.address,
-          accuracy: gpsResult.accuracy,
-          mapUrl: gpsResult.mapUrl,
-        },
+        gpsCoordinates: gpsResult
+          ? {
+              latitude: gpsResult.latitude,
+              longitude: gpsResult.longitude,
+              address: gpsResult.address || job.client.address,
+              accuracy: gpsResult.accuracy,
+              mapUrl: gpsResult.mapUrl,
+            }
+          : job.gpsCoordinates,
       });
     };
     reader.readAsDataURL(file);
@@ -421,6 +425,7 @@ export function TechFieldDashboard({
   const handleAnalyzePhotoWithAI = async () => {
     if (!photoPreview) return;
     setIsAnalyzingPhoto(true);
+    setPhotoAnalysisError(null);
 
     try {
       const res = await authedFetch('/api/analyze-photo', {
@@ -512,9 +517,12 @@ export function TechFieldDashboard({
             json.data.meterReading || json.data.thermalDelta || json.data.substrate || 'Photo evidence'
           } recorded on ${json.data.substrate || 'substrate'}.`
         );
+      } else {
+        setPhotoAnalysisError(json.error || `Photo analysis failed (HTTP ${res.status})`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Photo analysis error:', err);
+      setPhotoAnalysisError(`Photo analysis failed: ${err?.message || 'Server error'}`);
     } finally {
       setIsAnalyzingPhoto(false);
     }
@@ -527,6 +535,7 @@ export function TechFieldDashboard({
       setActivePhotoId(null);
       setPhotoPreview(null);
       setAnalyzedResult(null);
+      setPhotoAnalysisError(null);
     }
   };
 
@@ -543,6 +552,11 @@ export function TechFieldDashboard({
   const handleCalibrateGps = async () => {
     setGpsCalibrateMessage('Acquiring high-accuracy GPS fix...');
     const result = await captureLocation(job.client.address, job.gpsCoordinates);
+    if (!result) {
+      setGpsCalibrateMessage('Location unavailable: allow location access or set the job address.');
+      setTimeout(() => setGpsCalibrateMessage(null), 4000);
+      return;
+    }
     onUpdateJob({
       ...job,
       gpsCoordinates: {
@@ -554,7 +568,7 @@ export function TechFieldDashboard({
       },
     });
     setGpsCalibrateMessage(
-      `✓ GPS Calibrated: ${result.latitude.toFixed(4)}, ${result.longitude.toFixed(4)} (±${Math.round(result.accuracy || 5)}m)`
+      `✓ GPS Calibrated: ${result.latitude.toFixed(4)}, ${result.longitude.toFixed(4)}${result.accuracy ? ` (±${Math.round(result.accuracy)}m)` : ''}`
     );
     setTimeout(() => setGpsCalibrateMessage(null), 4000);
   };
@@ -596,6 +610,10 @@ export function TechFieldDashboard({
     job.psychrometricLogs && job.psychrometricLogs.length > 0
       ? job.psychrometricLogs[job.psychrometricLogs.length - 1]
       : null;
+
+
+  const selectedMapLat = selectedMapPhoto?.gps?.latitude ?? job.gpsCoordinates?.latitude;
+  const selectedMapLng = selectedMapPhoto?.gps?.longitude ?? job.gpsCoordinates?.longitude;
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -725,10 +743,10 @@ export function TechFieldDashboard({
         {/* Live Interactive Google Map with Property & Geotagged Photo Pins */}
         <div className="mt-4">
           <JobLocationMap
-            latitude={job.gpsCoordinates?.latitude || 44.0462}
-            longitude={job.gpsCoordinates?.longitude || -123.022}
+            latitude={job.gpsCoordinates?.latitude}
+            longitude={job.gpsCoordinates?.longitude}
             address={job.client.address}
-            accuracy={job.gpsCoordinates?.accuracy || 5}
+            accuracy={job.gpsCoordinates?.accuracy}
             photos={job.photos}
             onRecalibrateGps={handleRecalibrateMapGps}
             height="260px"
@@ -1030,18 +1048,17 @@ export function TechFieldDashboard({
             {gpsCalibrateMessage && (
               <div className="mb-3 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] flex items-center justify-between animate-in fade-in">
                 <span>{gpsCalibrateMessage}</span>
-                <a
-                  href={buildGoogleMapsUrl(
-                    job.gpsCoordinates?.latitude || 44.0462,
-                    job.gpsCoordinates?.longitude || -123.022
-                  )}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-bold text-emerald-700 hover:underline flex items-center gap-1 ml-2"
-                >
-                  <span>Verify on Google Maps</span>
-                  <ExternalLink className="w-2.5 h-2.5" />
-                </a>
+                {job.gpsCoordinates && (
+                  <a
+                    href={buildGoogleMapsUrl(job.gpsCoordinates.latitude, job.gpsCoordinates.longitude)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-bold text-emerald-700 hover:underline flex items-center gap-1 ml-2"
+                  >
+                    <span>Verify on Google Maps</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
               </div>
             )}
 
@@ -1107,25 +1124,25 @@ export function TechFieldDashboard({
                   />
 
                   {/* Floating Geolocation Overlay on Preview */}
+                  {job.gpsCoordinates ? (
                   <div className="absolute bottom-2 left-2 right-2 bg-slate-950/85 backdrop-blur-xs text-white px-3 py-2 rounded-xl flex items-center justify-between text-xs border border-white/10 shadow-lg">
                     <div className="flex items-center gap-1.5 font-mono text-[11px]">
                       <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span className="font-bold">
-                        {job.gpsCoordinates?.latitude.toFixed(5) || '44.04620'},{' '}
-                        {job.gpsCoordinates?.longitude.toFixed(5) || '-123.02200'}
+                        {job.gpsCoordinates.latitude.toFixed(5)},{' '}
+                        {job.gpsCoordinates.longitude.toFixed(5)}
                       </span>
-                      <span className="text-slate-400 text-[10px]">
-                        (±{Math.round(job.gpsCoordinates?.accuracy || 4)}m)
-                      </span>
+                      {job.gpsCoordinates.accuracy ? (
+                        <span className="text-slate-400 text-[10px]">
+                          (±{Math.round(job.gpsCoordinates.accuracy)}m)
+                        </span>
+                      ) : null}
                     </div>
 
                     <a
                       href={
-                        job.gpsCoordinates?.mapUrl ||
-                        buildGoogleMapsUrl(
-                          job.gpsCoordinates?.latitude || 44.0462,
-                          job.gpsCoordinates?.longitude || -123.022
-                        )
+                        job.gpsCoordinates.mapUrl ||
+                        buildGoogleMapsUrl(job.gpsCoordinates.latitude, job.gpsCoordinates.longitude)
                       }
                       target="_blank"
                       rel="noopener noreferrer"
@@ -1136,12 +1153,19 @@ export function TechFieldDashboard({
                       <ExternalLink className="w-2.5 h-2.5" />
                     </a>
                   </div>
+                  ) : (
+                  <div className="absolute bottom-2 left-2 right-2 bg-slate-950/85 backdrop-blur-xs text-slate-300 px-3 py-2 rounded-xl flex items-center gap-1.5 text-[11px] border border-white/10 shadow-lg">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>No location recorded</span>
+                  </div>
+                  )}
 
                   <button
                     type="button"
                     onClick={() => {
                       setPhotoPreview(null);
                       setAnalyzedResult(null);
+                      setPhotoAnalysisError(null);
                     }}
                     className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors"
                   >
@@ -1167,6 +1191,12 @@ export function TechFieldDashboard({
                     </>
                   )}
                 </button>
+
+                {photoAnalysisError && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800">
+                    {photoAnalysisError}
+                  </div>
+                )}
 
                 {analyzedResult && (
                   <div className="p-4 rounded-xl bg-blue-50/80 border border-blue-200 text-xs space-y-2">
@@ -1221,12 +1251,9 @@ export function TechFieldDashboard({
                 </div>
               </div>
 
-              {job.photos.length > 0 && (
+              {job.photos.length > 0 && job.gpsCoordinates && (
                 <a
-                  href={buildGoogleMapsUrl(
-                    job.gpsCoordinates?.latitude || 44.0462,
-                    job.gpsCoordinates?.longitude || -123.022
-                  )}
+                  href={buildGoogleMapsUrl(job.gpsCoordinates.latitude, job.gpsCoordinates.longitude)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200 transition-colors"
@@ -1246,12 +1273,13 @@ export function TechFieldDashboard({
             ) : (
               <div className="space-y-4">
                 {job.photos.map((photo, pIdx) => {
-                  const lat = photo.gps?.latitude ?? job.gpsCoordinates?.latitude ?? 44.0462;
-                  const lng = photo.gps?.longitude ?? job.gpsCoordinates?.longitude ?? -123.022;
-                  const gmapsUrl = photo.gps?.mapUrl || buildGoogleMapsUrl(lat, lng);
-                  const directionsUrl = photo.gps?.directionsUrl || buildGoogleMapsDirectionsUrl(lat, lng);
-                  const satelliteUrl = photo.gps?.satelliteUrl || buildGoogleMapsSatelliteUrl(lat, lng);
-                  const accuracyText = photo.gps?.accuracy ? `±${Math.round(photo.gps.accuracy)}m` : '±4m';
+                  const lat = photo.gps?.latitude ?? job.gpsCoordinates?.latitude;
+                  const lng = photo.gps?.longitude ?? job.gpsCoordinates?.longitude;
+                  const hasLocation = lat != null && lng != null;
+                  const gmapsUrl = photo.gps?.mapUrl || (hasLocation ? buildGoogleMapsUrl(lat, lng) : '');
+                  const directionsUrl = photo.gps?.directionsUrl || (hasLocation ? buildGoogleMapsDirectionsUrl(lat, lng) : '');
+                  const satelliteUrl = photo.gps?.satelliteUrl || (hasLocation ? buildGoogleMapsSatelliteUrl(lat, lng) : '');
+                  const accuracyText = photo.gps?.accuracy ? `±${Math.round(photo.gps.accuracy)}m` : '';
 
                   return (
                     <div
@@ -1332,6 +1360,7 @@ export function TechFieldDashboard({
                         </div>
 
                         {/* Dedicated Geolocation Verification Box */}
+                        {hasLocation ? (
                         <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-2">
                           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                             <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-800">
@@ -1339,9 +1368,11 @@ export function TechFieldDashboard({
                               <span className="font-bold">
                                 {lat.toFixed(5)}°, {lng.toFixed(5)}°
                               </span>
-                              <span className="text-slate-400 font-sans text-[10px]">
-                                ({accuracyText})
-                              </span>
+                              {accuracyText && (
+                                <span className="text-slate-400 font-sans text-[10px]">
+                                  ({accuracyText})
+                                </span>
+                              )}
                             </div>
 
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
@@ -1418,6 +1449,12 @@ export function TechFieldDashboard({
                             </button>
                           </div>
                         </div>
+                        ) : (
+                          <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-[11px] text-slate-500 flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>No location recorded</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1779,7 +1816,7 @@ export function TechFieldDashboard({
       )}
 
       {/* Google Maps Visualization Modal */}
-      {selectedMapPhoto && (
+      {selectedMapPhoto && selectedMapLat != null && selectedMapLng != null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
           <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
             {/* Modal Header */}
@@ -1851,10 +1888,10 @@ export function TechFieldDashboard({
                 <div className="space-y-3 flex flex-col justify-between">
                   <div className="rounded-xl overflow-hidden border border-slate-300 shadow-inner bg-slate-100">
                     <JobLocationMap
-                      latitude={selectedMapPhoto.gps?.latitude || job.gpsCoordinates?.latitude || 44.0462}
-                      longitude={selectedMapPhoto.gps?.longitude || job.gpsCoordinates?.longitude || -123.022}
+                      latitude={selectedMapLat}
+                      longitude={selectedMapLng}
                       address={selectedMapPhoto.gps?.address || job.client.address}
-                      accuracy={selectedMapPhoto.gps?.accuracy || 4}
+                      accuracy={selectedMapPhoto.gps?.accuracy}
                       height="192px"
                       showPhotoMarkers={false}
                     />
@@ -1864,19 +1901,21 @@ export function TechFieldDashboard({
                     <div className="flex items-center justify-between">
                       <span className="text-slate-500 font-medium">GPS Latitude:</span>
                       <span className="font-mono font-bold text-slate-900">
-                        {selectedMapPhoto.gps?.latitude.toFixed(5) || '44.04620'}°
+                        {selectedMapLat.toFixed(5)}°
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-500 font-medium">GPS Longitude:</span>
                       <span className="font-mono font-bold text-slate-900">
-                        {selectedMapPhoto.gps?.longitude.toFixed(5) || '-123.02200'}°
+                        {selectedMapLng.toFixed(5)}°
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-500 font-medium">GPS Accuracy:</span>
                       <span className="font-mono font-semibold text-emerald-700">
-                        ±{Math.round(selectedMapPhoto.gps?.accuracy || 4)} meters
+                        {selectedMapPhoto.gps?.accuracy
+                          ? `±${Math.round(selectedMapPhoto.gps.accuracy)} meters`
+                          : 'Not recorded'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1913,10 +1952,7 @@ export function TechFieldDashboard({
                   <a
                     href={
                       selectedMapPhoto.gps?.directionsUrl ||
-                      buildGoogleMapsDirectionsUrl(
-                        selectedMapPhoto.gps?.latitude || 44.0462,
-                        selectedMapPhoto.gps?.longitude || -123.022
-                      )
+                      buildGoogleMapsDirectionsUrl(selectedMapLat, selectedMapLng)
                     }
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1929,10 +1965,7 @@ export function TechFieldDashboard({
                   <a
                     href={
                       selectedMapPhoto.gps?.satelliteUrl ||
-                      buildGoogleMapsSatelliteUrl(
-                        selectedMapPhoto.gps?.latitude || 44.0462,
-                        selectedMapPhoto.gps?.longitude || -123.022
-                      )
+                      buildGoogleMapsSatelliteUrl(selectedMapLat, selectedMapLng)
                     }
                     target="_blank"
                     rel="noopener noreferrer"
@@ -1945,10 +1978,7 @@ export function TechFieldDashboard({
                   <a
                     href={
                       selectedMapPhoto.gps?.mapUrl ||
-                      buildGoogleMapsUrl(
-                        selectedMapPhoto.gps?.latitude || 44.0462,
-                        selectedMapPhoto.gps?.longitude || -123.022
-                      )
+                      buildGoogleMapsUrl(selectedMapLat, selectedMapLng)
                     }
                     target="_blank"
                     rel="noopener noreferrer"
@@ -2003,20 +2033,20 @@ export function TechFieldDashboard({
                   <div className="text-slate-500 font-mono text-[11px] flex items-center gap-1.5">
                     <MapPin className="w-3 h-3 text-emerald-600" />
                     <span>
-                      GPS: {previewEnlargePhoto.gps?.latitude.toFixed(5) || '44.04620'},{' '}
-                      {previewEnlargePhoto.gps?.longitude.toFixed(5) || '-123.02200'} (±
-                      {Math.round(previewEnlargePhoto.gps?.accuracy || 4)}m)
+                      {previewEnlargePhoto.gps
+                        ? `GPS: ${previewEnlargePhoto.gps.latitude.toFixed(5)}, ${previewEnlargePhoto.gps.longitude.toFixed(5)}${
+                            previewEnlargePhoto.gps.accuracy ? ` (±${Math.round(previewEnlargePhoto.gps.accuracy)}m)` : ''
+                          }`
+                        : 'No location recorded'}
                     </span>
                   </div>
                 </div>
 
+                {previewEnlargePhoto.gps && (
                 <a
                   href={
-                    previewEnlargePhoto.gps?.mapUrl ||
-                    buildGoogleMapsUrl(
-                      previewEnlargePhoto.gps?.latitude || 44.0462,
-                      previewEnlargePhoto.gps?.longitude || -123.022
-                    )
+                    previewEnlargePhoto.gps.mapUrl ||
+                    buildGoogleMapsUrl(previewEnlargePhoto.gps.latitude, previewEnlargePhoto.gps.longitude)
                   }
                   target="_blank"
                   rel="noopener noreferrer"
@@ -2026,6 +2056,7 @@ export function TechFieldDashboard({
                   <span>View Pin on Google Maps</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
+                )}
               </div>
             </div>
           </div>

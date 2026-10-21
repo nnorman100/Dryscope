@@ -28,8 +28,7 @@ Two settings live in the Firebase project `dryscope-d6f72`:
    (`client.permissions.disabledUserSignup = true`):
 
    ```bash
-   npm run auth:disable-signup            # uses the signed-in Firebase CLI account
-   npm run auth:disable-signup -- --enable  # reverts
+   npm run auth:disable-signup   # uses the signed-in Firebase CLI account
    ```
 
    The same switch is in the console: Authentication > Settings > User actions

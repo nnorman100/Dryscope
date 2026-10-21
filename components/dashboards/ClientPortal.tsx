@@ -100,7 +100,6 @@ export function ClientPortal({
         signatureDataUrl: signatureData,
         signedByName: signerName,
         signedAt: new Date().toISOString(),
-        ipAddress: '198.51.100.' + Math.floor(Math.random() * 80 + 10),
         termsAccepted: true,
       },
       updatedAt: new Date().toISOString(),
@@ -312,10 +311,10 @@ export function ClientPortal({
               </h4>
               <p className="text-xs text-emerald-800 mt-1">
                 Signed by <span className="font-bold">{job.signature.signedByName || signerName}</span> on{' '}
-                {job.signature.signedAt ? new Date(job.signature.signedAt).toLocaleString() : 'Today'}
+                {job.signature.signedAt ? new Date(job.signature.signedAt).toLocaleString() : 'Not recorded'}
               </p>
               <div className="text-[11px] text-emerald-700 font-mono mt-1">
-                Audit Record ID: DS-SIG-{job.jobId} • Verified IP: {job.signature.ipAddress || '198.51.100.24'}
+                Audit Record ID: DS-SIG-{job.jobId} • IP: {job.signature.ipAddress || 'Not recorded'}
               </div>
             </div>
 
@@ -355,7 +354,7 @@ export function ClientPortal({
                 >
                   {job.signature.signedAt
                     ? new Date(job.signature.signedAt).toISOString().split('T')[0]
-                    : '2026-10-20'} • On-Site Device
+                    : new Date().toISOString().split('T')[0]} • On-Site Device
                 </div>
               </div>
             </div>

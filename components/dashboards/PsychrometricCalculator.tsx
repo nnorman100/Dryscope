@@ -7,8 +7,6 @@ import {
   evaluateGrainDepression,
   calculateVaporPressureDifferential,
   recommendDryingSystem,
-  PSYCHROMETRIC_FIELD_PRESETS,
-  PsychrometricPreset,
 } from '@/lib/psychrometrics';
 import {
   Gauge,
@@ -20,7 +18,6 @@ import {
   ArrowRight,
   TrendingDown,
   Layers,
-  Sparkles,
   BookmarkPlus,
   Trash2,
   HelpCircle,
@@ -40,17 +37,23 @@ export function PsychrometricCalculator({
   onOpenDocSuite,
 }: PsychrometricCalculatorProps) {
   // 4 Drying Zones State
-  const [outsideTemp, setOutsideTemp] = useState<number>(62);
-  const [outsideRH, setOutsideRH] = useState<number>(74);
+  const [outsideTemp, setOutsideTemp] = useState<number | null>(null);
+  const [outsideRH, setOutsideRH] = useState<number | null>(null);
 
-  const [unaffectedTemp, setUnaffectedTemp] = useState<number>(68);
-  const [unaffectedRH, setUnaffectedRH] = useState<number>(45);
+  const [unaffectedTemp, setUnaffectedTemp] = useState<number | null>(null);
+  const [unaffectedRH, setUnaffectedRH] = useState<number | null>(null);
 
-  const [affectedTemp, setAffectedTemp] = useState<number>(74);
-  const [affectedRH, setAffectedRH] = useState<number>(72);
+  const [affectedTemp, setAffectedTemp] = useState<number | null>(null);
+  const [affectedRH, setAffectedRH] = useState<number | null>(null);
 
-  const [outletTemp, setOutletTemp] = useState<number>(86);
-  const [outletRH, setOutletRH] = useState<number>(36);
+  const [outletTemp, setOutletTemp] = useState<number | null>(null);
+  const [outletRH, setOutletRH] = useState<number | null>(null);
+
+  const outsideEntered = outsideTemp !== null && outsideRH !== null;
+  const unaffectedEntered = unaffectedTemp !== null && unaffectedRH !== null;
+  const affectedEntered = affectedTemp !== null && affectedRH !== null;
+  const outletEntered = outletTemp !== null && outletRH !== null;
+  const allReadingsEntered = outsideEntered && unaffectedEntered && affectedEntered && outletEntered;
 
   // Active Day selector for logging
   const currentLoggedCount = job.psychrometricLogs?.length || 0;
@@ -60,10 +63,10 @@ export function PsychrometricCalculator({
   const [logSuccessMessage, setLogSuccessMessage] = useState<string | null>(null);
 
   // Perform Calculations
-  const outsidePsychro = calculatePsychrometrics(outsideTemp, outsideRH);
-  const unaffectedPsychro = calculatePsychrometrics(unaffectedTemp, unaffectedRH);
-  const affectedPsychro = calculatePsychrometrics(affectedTemp, affectedRH);
-  const outletPsychro = calculatePsychrometrics(outletTemp, outletRH);
+  const outsidePsychro = calculatePsychrometrics(outsideTemp ?? 70, outsideRH ?? 55);
+  const unaffectedPsychro = calculatePsychrometrics(unaffectedTemp ?? 72, unaffectedRH ?? 50);
+  const affectedPsychro = calculatePsychrometrics(affectedTemp ?? 75, affectedRH ?? 60);
+  const outletPsychro = calculatePsychrometrics(outletTemp ?? 90, outletRH ?? 40);
 
   // Grain Depression (Inlet GPP - Outlet GPP)
   // In standard practice, dehu inlet air is drawn from the affected chamber
@@ -84,32 +87,16 @@ export function PsychrometricCalculator({
     affectedPsychro.gpp
   );
 
-  // Apply a preset
-  const handleApplyPreset = (preset: PsychrometricPreset) => {
-    setOutsideTemp(preset.outside.tempF);
-    setOutsideRH(preset.outside.rh);
-    setUnaffectedTemp(preset.unaffected.tempF);
-    setUnaffectedRH(preset.unaffected.rh);
-    setAffectedTemp(preset.affected.tempF);
-    setAffectedRH(preset.affected.rh);
-    setOutletTemp(preset.dehuOutlet.tempF);
-    setOutletRH(preset.dehuOutlet.rh);
-    setActiveDayNumber(preset.dayNumber);
-    setLogSuccessMessage(
-      `Loaded "${preset.name}". Adjust sliders or save to job file.`
-    );
-    setTimeout(() => setLogSuccessMessage(null), 4000);
-  };
-
   // Save current readings to job.psychrometricLogs
   const handleSaveToJobLogs = () => {
+    if (!allReadingsEntered) return;
     const existingLogs = job.psychrometricLogs || [];
     const newLogId = `psy-day-${activeDayNumber}-${existingLogs.length + 1}`;
-    const todayStr = '2026-10-20';
+    const now = new Date();
     const newLogEntry: PsychrometricLog = {
       id: newLogId,
       dayNumber: activeDayNumber,
-      date: todayStr,
+      date: now.toLocaleDateString('en-CA'),
       outsideTempF: outsidePsychro.tempF,
       outsideRH: outsidePsychro.rh,
       unaffectedTempF: unaffectedPsychro.tempF,
@@ -129,7 +116,7 @@ export function PsychrometricCalculator({
     const updatedJob: RestorationJob = {
       ...job,
       psychrometricLogs: updatedLogs,
-      updatedAt: todayStr,
+      updatedAt: now.toISOString(),
     };
 
     onUpdateJob(updatedJob);
@@ -146,7 +133,7 @@ export function PsychrometricCalculator({
     onUpdateJob({
       ...job,
       psychrometricLogs: updatedLogs,
-      updatedAt: '2026-10-20',
+      updatedAt: new Date().toISOString(),
     });
   };
 
@@ -188,28 +175,10 @@ export function PsychrometricCalculator({
           )}
         </div>
 
-        {/* Quick Presets Bar */}
-        <div className="mt-5 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            Quick IICRC Field Presets:
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {PSYCHROMETRIC_FIELD_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => handleApplyPreset(preset)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors border border-slate-700 hover:border-emerald-500/50 flex items-center gap-1.5"
-                title={preset.description}
-              >
-                <Sparkles className="w-3 h-3 text-amber-400" />
-                <span>{preset.name.split(':')[0]}</span>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
+      {allReadingsEntered ? (
+        <>
       {/* Hero Metric: Dehumidifier Grain Depression Banner */}
       <div
         className={`rounded-2xl p-5 sm:p-6 border shadow-lg transition-all ${
@@ -329,6 +298,12 @@ export function PsychrometricCalculator({
           </div>
         </div>
       </div>
+        </>
+      ) : (
+        <div className="rounded-2xl p-5 border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-600">
+          Enter temperature and relative humidity for all four zones to calculate grain depression.
+        </div>
+      )}
 
       {/* 4 Psychrometric Drying Zones Input & Output Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -348,7 +323,7 @@ export function PsychrometricCalculator({
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded bg-sky-50 text-sky-700 font-mono text-[11px] font-bold">
-                {outsidePsychro.gpp} GPP
+                {outsideEntered ? `${outsidePsychro.gpp} GPP` : '—'}
               </span>
             </div>
 
@@ -357,13 +332,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">Temperature:</span>
-                  <span className="font-mono font-bold text-slate-900">{outsideTemp}°F</span>
+                  <span className="font-mono font-bold text-slate-900">{outsideTemp === null ? '—' : `${outsideTemp}°F`}</span>
                 </div>
                 <input
                   type="range"
                   min={30}
                   max={110}
-                  value={outsideTemp}
+                  value={outsideTemp ?? 70}
                   onChange={(e) => setOutsideTemp(Number(e.target.value))}
                   className="w-full accent-sky-600 cursor-pointer"
                 />
@@ -372,13 +347,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">Relative Humidity:</span>
-                  <span className="font-mono font-bold text-slate-900">{outsideRH}%</span>
+                  <span className="font-mono font-bold text-slate-900">{outsideRH === null ? '—' : `${outsideRH}%`}</span>
                 </div>
                 <input
                   type="range"
                   min={10}
                   max={100}
-                  value={outsideRH}
+                  value={outsideRH ?? 55}
                   onChange={(e) => setOutsideRH(Number(e.target.value))}
                   className="w-full accent-sky-600 cursor-pointer"
                 />
@@ -387,6 +362,7 @@ export function PsychrometricCalculator({
           </div>
 
           {/* Derived Values Box */}
+          {outsideEntered && (
           <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px] font-mono bg-slate-50 p-2.5 rounded-xl">
             <div>
               <span className="text-slate-400 block text-[10px]">Dew Point:</span>
@@ -400,6 +376,7 @@ export function PsychrometricCalculator({
               Enthalpy: {outsidePsychro.enthalpyBtuPerLb} BTU/lb
             </div>
           </div>
+          )}
         </div>
 
         {/* Zone 2: Unaffected Room / Control Standard */}
@@ -418,7 +395,7 @@ export function PsychrometricCalculator({
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[11px] font-bold">
-                {unaffectedPsychro.gpp} GPP
+                {unaffectedEntered ? `${unaffectedPsychro.gpp} GPP` : '—'}
               </span>
             </div>
 
@@ -427,13 +404,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">Temperature:</span>
-                  <span className="font-mono font-bold text-slate-900">{unaffectedTemp}°F</span>
+                  <span className="font-mono font-bold text-slate-900">{unaffectedTemp === null ? '—' : `${unaffectedTemp}°F`}</span>
                 </div>
                 <input
                   type="range"
                   min={50}
                   max={95}
-                  value={unaffectedTemp}
+                  value={unaffectedTemp ?? 72}
                   onChange={(e) => setUnaffectedTemp(Number(e.target.value))}
                   className="w-full accent-slate-600 cursor-pointer"
                 />
@@ -442,13 +419,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">Relative Humidity:</span>
-                  <span className="font-mono font-bold text-slate-900">{unaffectedRH}%</span>
+                  <span className="font-mono font-bold text-slate-900">{unaffectedRH === null ? '—' : `${unaffectedRH}%`}</span>
                 </div>
                 <input
                   type="range"
                   min={10}
                   max={90}
-                  value={unaffectedRH}
+                  value={unaffectedRH ?? 50}
                   onChange={(e) => setUnaffectedRH(Number(e.target.value))}
                   className="w-full accent-slate-600 cursor-pointer"
                 />
@@ -457,6 +434,7 @@ export function PsychrometricCalculator({
           </div>
 
           {/* Derived Values Box */}
+          {unaffectedEntered && (
           <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px] font-mono bg-slate-50 p-2.5 rounded-xl">
             <div>
               <span className="text-slate-400 block text-[10px]">Dew Point:</span>
@@ -470,6 +448,7 @@ export function PsychrometricCalculator({
               Dry Standard Goal: &lt;{unaffectedPsychro.gpp} GPP
             </div>
           </div>
+          )}
         </div>
 
         {/* Zone 3: Affected Drying Chamber (Dehu Intake) */}
@@ -491,7 +470,7 @@ export function PsychrometricCalculator({
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-mono text-[11px] font-black">
-                {affectedPsychro.gpp} GPP
+                {affectedEntered ? `${affectedPsychro.gpp} GPP` : '—'}
               </span>
             </div>
 
@@ -500,13 +479,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">Temperature:</span>
-                  <span className="font-mono font-bold text-slate-900">{affectedTemp}°F</span>
+                  <span className="font-mono font-bold text-slate-900">{affectedTemp === null ? '—' : `${affectedTemp}°F`}</span>
                 </div>
                 <input
                   type="range"
                   min={50}
                   max={100}
-                  value={affectedTemp}
+                  value={affectedTemp ?? 75}
                   onChange={(e) => setAffectedTemp(Number(e.target.value))}
                   className="w-full accent-amber-500 cursor-pointer"
                 />
@@ -515,13 +494,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">Relative Humidity:</span>
-                  <span className="font-mono font-bold text-slate-900">{affectedRH}%</span>
+                  <span className="font-mono font-bold text-slate-900">{affectedRH === null ? '—' : `${affectedRH}%`}</span>
                 </div>
                 <input
                   type="range"
                   min={20}
                   max={100}
-                  value={affectedRH}
+                  value={affectedRH ?? 60}
                   onChange={(e) => setAffectedRH(Number(e.target.value))}
                   className="w-full accent-amber-500 cursor-pointer"
                 />
@@ -530,6 +509,7 @@ export function PsychrometricCalculator({
           </div>
 
           {/* Derived Values Box */}
+          {affectedEntered && unaffectedEntered && (
           <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px] font-mono bg-amber-50/60 p-2.5 rounded-xl border border-amber-200/50">
             <div>
               <span className="text-amber-800 block text-[10px]">Dew Point:</span>
@@ -543,6 +523,7 @@ export function PsychrometricCalculator({
               +{affectedPsychro.gpp - unaffectedPsychro.gpp} GPP above dry standard
             </div>
           </div>
+          )}
         </div>
 
         {/* Zone 4: Dehumidifier Exhaust Air (Outlet) */}
@@ -564,7 +545,7 @@ export function PsychrometricCalculator({
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-mono text-[11px] font-black">
-                {outletPsychro.gpp} GPP
+                {outletEntered ? `${outletPsychro.gpp} GPP` : '—'}
               </span>
             </div>
 
@@ -573,13 +554,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">Temperature (Warmer):</span>
-                  <span className="font-mono font-bold text-slate-900">{outletTemp}°F</span>
+                  <span className="font-mono font-bold text-slate-900">{outletTemp === null ? '—' : `${outletTemp}°F`}</span>
                 </div>
                 <input
                   type="range"
                   min={65}
                   max={115}
-                  value={outletTemp}
+                  value={outletTemp ?? 90}
                   onChange={(e) => setOutletTemp(Number(e.target.value))}
                   className="w-full accent-emerald-500 cursor-pointer"
                 />
@@ -588,13 +569,13 @@ export function PsychrometricCalculator({
               <div>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-600 font-medium">RH (Target 20-40%):</span>
-                  <span className="font-mono font-bold text-slate-900">{outletRH}%</span>
+                  <span className="font-mono font-bold text-slate-900">{outletRH === null ? '—' : `${outletRH}%`}</span>
                 </div>
                 <input
                   type="range"
                   min={10}
                   max={70}
-                  value={outletRH}
+                  value={outletRH ?? 40}
                   onChange={(e) => setOutletRH(Number(e.target.value))}
                   className="w-full accent-emerald-500 cursor-pointer"
                 />
@@ -603,6 +584,7 @@ export function PsychrometricCalculator({
           </div>
 
           {/* Derived Values Box */}
+          {outletEntered && affectedEntered && (
           <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px] font-mono bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-200/50">
             <div>
               <span className="text-emerald-800 block text-[10px]">Dew Point:</span>
@@ -616,9 +598,12 @@ export function PsychrometricCalculator({
               Δ {grainDepression.deltaGPP} GPP Grain Depression
             </div>
           </div>
+          )}
         </div>
       </div>
 
+      {allReadingsEntered && (
+        <>
       {/* Visual Comparative GPP Chart */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2 mb-4">
@@ -702,6 +687,8 @@ export function PsychrometricCalculator({
           </div>
         </div>
       </div>
+        </>
+      )}
 
       {/* Save Today's Reading & Daily Psychrometric Drying Log Table */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-5">
@@ -735,7 +722,9 @@ export function PsychrometricCalculator({
             <button
               type="button"
               onClick={handleSaveToJobLogs}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer"
+              disabled={!allReadingsEntered}
+              title={allReadingsEntered ? undefined : 'Enter all eight readings first'}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <BookmarkPlus className="w-3.5 h-3.5" />
               <span>Record Day {activeDayNumber} Log</span>

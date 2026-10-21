@@ -2,20 +2,15 @@
 
 import React from 'react';
 import { RestorationJob } from '@/lib/types';
-import { formatCurrency, RATES } from '@/lib/pricing';
+import { calculatePricingBreakdown, formatCurrency, RATES } from '@/lib/pricing';
 import {
   Building2,
   TrendingUp,
   DollarSign,
-  PieChart,
-  Users,
   Wrench,
-  CheckCircle2,
   MapPin,
   Clock,
-  Shield,
   Sliders,
-  Sparkles,
 } from 'lucide-react';
 
 interface OwnerDashboardProps {
@@ -29,6 +24,16 @@ export function OwnerDashboard({
   onSelectJob,
   onNavigateToOffice,
 }: OwnerDashboardProps) {
+  const pipelineTotal = jobs.reduce((sum, j) => sum + calculatePricingBreakdown(j).itemizedSubtotal, 0);
+  const readyForReview = jobs.filter((j) => j.status === 'Ready for Review').length;
+  const airMovers = jobs.reduce((sum, j) => sum + (j.equipment?.airMovers || 0), 0);
+  const dehumidifiers = jobs.reduce((sum, j) => sum + (j.equipment?.dehumidifiers || 0), 0);
+  const baselineTotal =
+    RATES.EMERGENCY_TRIP +
+    Math.round(RATES.MONITORING_BASELINE_HOURS * RATES.MONITORING_RATE_PER_HR * 100) / 100 +
+    RATES.HAUL_LOAD +
+    RATES.HEPA_FILTER;
+
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Executive Command Header */}
@@ -64,10 +69,9 @@ export function OwnerDashboard({
             <span className="text-xs font-bold uppercase tracking-wider">Gross Claims Pipeline</span>
             <DollarSign className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-3xl font-black text-slate-900 font-mono">$142,850</div>
-          <div className="flex items-center gap-1 text-[11px] text-emerald-600 font-semibold mt-1">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>+18.4% vs last month</span>
+          <div className="text-3xl font-black text-slate-900 font-mono">{formatCurrency(pipelineTotal)}</div>
+          <div className="text-[11px] text-slate-500 mt-1 font-medium">
+            Itemized subtotal across {jobs.length} open {jobs.length === 1 ? 'job' : 'jobs'}
           </div>
         </div>
 
@@ -76,9 +80,9 @@ export function OwnerDashboard({
             <span className="text-xs font-bold uppercase tracking-wider">Gross Profit Margin</span>
             <TrendingUp className="w-4 h-4 text-blue-600" />
           </div>
-          <div className="text-3xl font-black text-slate-900 font-mono">64.2%</div>
+          <div className="text-3xl font-black text-slate-400 font-mono">—</div>
           <div className="text-[11px] text-slate-500 mt-1 font-medium">
-            Target benchmark: 60.0%
+            Not tracked: job costs are not recorded
           </div>
         </div>
 
@@ -87,20 +91,20 @@ export function OwnerDashboard({
             <span className="text-xs font-bold uppercase tracking-wider">Active Deployments</span>
             <Clock className="w-4 h-4 text-amber-600" />
           </div>
-          <div className="text-3xl font-black text-slate-900 font-mono">{jobs.length + 8}</div>
+          <div className="text-3xl font-black text-slate-900 font-mono">{jobs.length}</div>
           <div className="text-[11px] text-slate-500 mt-1 font-medium">
-            3 Ready for Scope Review
+            {readyForReview} Ready for Scope Review
           </div>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Equipment Utilization</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Equipment Deployed</span>
             <Wrench className="w-4 h-4 text-purple-600" />
           </div>
-          <div className="text-3xl font-black text-emerald-600 font-mono">86.4%</div>
+          <div className="text-3xl font-black text-emerald-600 font-mono">{airMovers + dehumidifiers}</div>
           <div className="text-[11px] text-slate-500 mt-1 font-medium">
-            38 / 44 Fans • 12 / 14 Dehus active
+            {airMovers} Fans • {dehumidifiers} Dehus on open jobs
           </div>
         </div>
       </div>
@@ -116,6 +120,11 @@ export function OwnerDashboard({
           </div>
 
           <div className="space-y-3">
+            {jobs.length === 0 && (
+              <div className="py-8 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+                No open jobs yet.
+              </div>
+            )}
             {jobs.map((j) => (
               <div
                 key={j.id}
@@ -171,37 +180,8 @@ export function OwnerDashboard({
             <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider pb-3 border-b border-slate-100 mb-4">
               Restoration Field Crew Roster
             </h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center">
-                    NN
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-900">Nate Norman</div>
-                    <div className="text-slate-500 text-[11px]">Senior Sales Tech • On Site</div>
-                  </div>
-                </div>
-                <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                  Active
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-xs p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center">
-                    CJ
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-900">Courtney Jenkins</div>
-                    <div className="text-slate-500 text-[11px]">Office Estimator • Reviewing Scopes</div>
-                  </div>
-                </div>
-                <span className="text-[11px] font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
-                  In Office
-                </span>
-              </div>
+            <div className="py-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+              No crew roster available yet.
             </div>
           </div>
 
@@ -220,23 +200,27 @@ export function OwnerDashboard({
             <div className="space-y-2 text-xs">
               <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
                 <span>Base Emergency Trip Call:</span>
-                <span className="font-mono font-bold">$133.95</span>
+                <span className="font-mono font-bold">{formatCurrency(RATES.EMERGENCY_TRIP)}</span>
               </div>
               <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
-                <span>Monitoring Base (13.25 hrs @ $47.46):</span>
-                <span className="font-mono font-bold">$628.85</span>
+                <span>
+                  Monitoring Base ({RATES.MONITORING_BASELINE_HOURS} hrs @ {formatCurrency(RATES.MONITORING_RATE_PER_HR)}):
+                </span>
+                <span className="font-mono font-bold">
+                  {formatCurrency(RATES.MONITORING_BASELINE_HOURS * RATES.MONITORING_RATE_PER_HR)}
+                </span>
               </div>
               <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
                 <span>Standard Baseline Total:</span>
-                <span className="font-mono font-bold text-emerald-600">$1,180.20</span>
+                <span className="font-mono font-bold text-emerald-600">{formatCurrency(baselineTotal)}</span>
               </div>
               <div className="flex justify-between py-1 text-slate-700 border-b border-slate-100">
                 <span>Direct Field Labor (D29):</span>
-                <span className="font-mono font-bold">$47.46 / hr</span>
+                <span className="font-mono font-bold">{formatCurrency(RATES.LABOR_RATE_PER_HOUR)} / hr</span>
               </div>
               <div className="flex justify-between py-1 text-slate-700">
                 <span>After Hours Emergency Fee:</span>
-                <span className="font-mono font-bold text-amber-600">$200.00</span>
+                <span className="font-mono font-bold text-amber-600">{formatCurrency(RATES.AFTER_HOURS_CHARGE)}</span>
               </div>
             </div>
           </div>

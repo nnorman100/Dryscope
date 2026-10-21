@@ -81,7 +81,7 @@ export function parseAndApplyQrAssetTag(
           equipmentCategory: eqCategory,
           serialNumber: serial,
           model,
-          notes: data.notes || data.voltage ? `Rated: ${data.voltage || '115V'}` : undefined,
+          notes: data.notes || (data.voltage ? `Rated: ${data.voltage}` : undefined),
         };
 
         const existingScanned = currentJob.scannedAssets || [];
@@ -108,11 +108,11 @@ export function parseAndApplyQrAssetTag(
       // B. Room JSON tag
       if (data.type === 'room' || data.roomName || data.lengthFt) {
         const roomName = data.roomName || data.name || 'Tagged Loss Area';
-        const length = Number(data.lengthFt || data.length || 14);
-        const width = Number(data.widthFt || data.width || 12);
-        const height = Number(data.heightFt || data.height || 8);
+        const length = Number(data.lengthFt || data.length || 0);
+        const width = Number(data.widthFt || data.width || 0);
+        const height = Number(data.heightFt || data.height || 0);
         const affectedFloor = Number(data.affectedFloorSqFt || length * width);
-        const floodCut = Number(data.floodCutHeightInches || 24);
+        const floodCut = Number(data.floodCutHeightInches || 0);
         const baseboard = Number(data.linearFtBaseboard || (length + width) * 2);
 
         const newRoom: RoomDimension = {
@@ -228,10 +228,10 @@ export function parseAndApplyQrAssetTag(
       if (pathname.includes('/rm') || url.searchParams.get('type') === 'room') {
         const rawName = pathname.split('/')[2] || url.searchParams.get('name') || 'Loss Chamber';
         const roomName = decodeURIComponent(rawName);
-        const l = Number(url.searchParams.get('l') || 15);
-        const w = Number(url.searchParams.get('w') || 12);
-        const h = Number(url.searchParams.get('h') || 8);
-        const fc = Number(url.searchParams.get('fc') || 24);
+        const l = Number(url.searchParams.get('l') || 0);
+        const w = Number(url.searchParams.get('w') || 0);
+        const h = Number(url.searchParams.get('h') || 0);
+        const fc = Number(url.searchParams.get('fc') || 0);
         const lb = Number(url.searchParams.get('lb') || (l + w) * 2);
 
         const newRoom: RoomDimension = {
@@ -351,10 +351,10 @@ export function parseAndApplyQrAssetTag(
   ) {
     const cleanName = trimmed.replace(/^room:\s*/i, '').split(/[0-9]/)[0].trim() || 'Scanned Room';
     const dimMatch = trimmed.match(/(\d+)\s*(?:x|by|\*)\s*(\d+)/i);
-    const l = dimMatch ? Number(dimMatch[1]) : 14;
-    const w = dimMatch ? Number(dimMatch[2]) : 12;
-    const h = 8;
-    const fc = 24;
+    const l = dimMatch ? Number(dimMatch[1]) : 0;
+    const w = dimMatch ? Number(dimMatch[2]) : 0;
+    const h = 0;
+    const fc = 0;
     const lb = (l + w) * 2;
 
     const newRoom: RoomDimension = {

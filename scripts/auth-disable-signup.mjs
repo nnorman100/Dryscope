@@ -9,7 +9,7 @@
 // PATCH https://identitytoolkit.googleapis.com/admin/v2/projects/{project}/config
 //   { client: { permissions: { disabledUserSignup: true } } }
 //
-// Usage:  node scripts/auth-disable-signup.mjs [--project <id>] [--enable]
+// Usage:  node scripts/auth-disable-signup.mjs [--project <id>]
 //         npm run auth:disable-signup
 //
 // Credentials: the signed-in Firebase CLI account (`npx firebase login`), or
@@ -25,7 +25,6 @@ const flag = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const disabledUserSignup = !args.includes('--enable');
 const project =
   flag('--project') ||
   process.env.FIREBASE_PROJECT ||
@@ -61,7 +60,7 @@ const res = await fetch(url, {
     'Content-Type': 'application/json',
     'x-goog-user-project': project,
   },
-  body: JSON.stringify({ client: { permissions: { disabledUserSignup } } }),
+  body: JSON.stringify({ client: { permissions: { disabledUserSignup: true } } }),
 });
 
 if (!res.ok) {
