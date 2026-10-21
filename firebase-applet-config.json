@@ -1,12 +1,11 @@
 {
-  "projectId": "mitigation-project",
-  "appId": "1:219826144890:web:9b74f06c49e97f5e41ddc3",
-  "apiKey": "AIzaSyDycvRZzjJB00fnDLp9DNtZNPjEgG4MEqY",
-  "authDomain": "mitigation-project.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-dryscopedisaster-d8d2d418-3141-4d4c-a0e1-455b83056571",
-  "storageBucket": "mitigation-project.firebasestorage.app",
-  "messagingSenderId": "219826144890",
-  "measurementId": "",
-  "oAuthClientId": "219826144890-11cdf2abgs9dnms77aiuu8j7tq9cgtlb.apps.googleusercontent.com",
+  "projectId": "dryscope-d6f72",
+  "appId": "1:831884399057:web:64f64f935e117aca9210f0",
+  "apiKey": "AIzaSyCi4CJWt5vs8Dzifd3X1cuZ1wJNh_EYvMs",
+  "authDomain": "dryscope-d6f72.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "dryscope-d6f72.firebasestorage.app",
+  "messagingSenderId": "831884399057",
+  "measurementId": "G-VW7DYLTVH6",
   "recaptchaSiteKey": ""
 }
