@@ -12,7 +12,6 @@ import {
   onSnapshot,
   setDoc,
   deleteDoc,
-  getDocs,
   query,
   where,
   Unsubscribe,
@@ -169,23 +168,6 @@ export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
  */
 export async function deleteJobFromFirestore(tenantId: string, jobId: string): Promise<void> {
   await deleteDoc(doc(jobsCollection(tenantId), jobId));
-}
-
-/**
- * Seed initial jobs into a company if it has none yet
- */
-export async function seedJobsIfEmpty(tenantId: string, initialJobs: RestorationJob[]): Promise<void> {
-  try {
-    const jobsCol = jobsCollection(tenantId);
-    const existing = await getDocs(jobsCol);
-    if (existing.empty && initialJobs.length > 0) {
-      for (const job of initialJobs) {
-        await setDoc(doc(jobsCol, job.id), { ...job, tenantId });
-      }
-    }
-  } catch (err) {
-    console.warn('Could not seed initial jobs to Firestore:', err);
-  }
 }
 
 /**

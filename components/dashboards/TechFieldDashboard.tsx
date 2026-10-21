@@ -48,11 +48,6 @@ import { QrAssetScannerModal } from './QrAssetScannerModal';
 import { RapidTapScopingHud } from './RapidTapScopingHud';
 import { playConfirmationChime, speakAssistantFeedback } from '@/lib/audioChime';
 import {
-  SAMPLE_MOISTURE_METER_PHOTO,
-  SAMPLE_THERMAL_IMAGING_PHOTO,
-  SAMPLE_STRUCTURAL_DAMAGE_PHOTO,
-} from '@/lib/sampleInspectionPhotos';
-import {
   usePhotoGeolocation,
   buildGoogleMapsUrl,
   buildGoogleMapsSatelliteUrl,
@@ -276,11 +271,6 @@ export function TechFieldDashboard({
       } catch (e) {}
       speakAssistantFeedback('Hands-free mode paused.');
     }
-  };
-
-  // Load realistic field sample dictation
-  const handleLoadSample = (sampleText: string) => {
-    setTranscript(sampleText);
   };
 
   // Call server-side /api/scope
@@ -860,48 +850,6 @@ export function TechFieldDashboard({
                 </span>
               </div>
             )}
-
-            {/* Quick Field Presets */}
-            <div className="mb-3">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                Quick Test Field Scenarios:
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleLoadSample(
-                      'Master bathroom is 14 by 10 with 8-foot ceiling. Vanity angle stop burst, clean water Cat 1. Drywall reading 34.5% WME. Need 24-inch flood cut, remove 48 LF baseboard. 4 air movers, 1 dehu for 3 days. Emergency after hours dispatch.'
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
-                >
-                  Bath Supply Line (Cat 1)
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleLoadSample(
-                      'Kitchen is 16 by 12 with 8-foot ceiling. Dishwasher drainage failure, grey water Cat 2. Engineered oak floor cupped at 28% WME. Baseboards removed. 3 air movers, 1 dehumidifier for 3 days.'
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
-                >
-                  Kitchen Dishwasher (Cat 2)
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleLoadSample(
-                      'Exam room is 16 by 12 with 9-foot ceiling. Main sewer backflow Cat 3 black water. Contaminated medical cabinets require double demo multiplier. 48-inch flood cut throughout. 6 air movers, 2 dehumidifiers, 2 HEPA scrubbers for 4 days.'
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium transition-colors"
-                >
-                  Sewer Main / Mold (Cat 3)
-                </button>
-              </div>
-            </div>
 
             {/* Dictation Box */}
             <div className="relative">

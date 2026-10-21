@@ -36,7 +36,7 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [cityStateZip, setCityStateZip] = useState('');
-  const [insuranceCarrier, setInsuranceCarrier] = useState('State Farm');
+  const [insuranceCarrier, setInsuranceCarrier] = useState('');
   const [policyNumber, setPolicyNumber] = useState('');
   const [category, setCategory] = useState<WaterLossCategory>('Cat 1 (Clean)');
   const [finishType, setFinishType] = useState<FinishType>('Finished');
@@ -68,16 +68,17 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
       moldCondition: lossType === 'mold' ? 'Condition 3 (Active Microbial Growth)' : undefined,
       containmentRequired: lossType === 'mold',
       finishType,
+      // Blank fields stay blank: no placeholder client, carrier or claim is invented
       client: {
-        name: clientName.trim() || 'New Client Property',
-        email: email.trim() || 'client@example.com',
-        phone: phone.trim() || '(555) 234-9988',
-        address: address.trim() || '100 Main Street',
-        cityStateZip: cityStateZip.trim() || 'Eugene, OR 97401',
-        insuranceCarrier: insuranceCarrier || 'State Farm',
-        policyNumber: policyNumber.trim() || 'SF-PENDING',
-        claimNumber: `CLM-${Math.floor(Math.random() * 90000 + 10000)}`,
-        deductible: 1000,
+        name: clientName.trim() || 'New client',
+        email: email.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        cityStateZip: cityStateZip.trim(),
+        insuranceCarrier: insuranceCarrier.trim(),
+        policyNumber: policyNumber.trim(),
+        claimNumber: '',
+        deductible: 0,
       },
       gpsCoordinates: coords
         ? {
@@ -88,7 +89,7 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
             mapUrl: getDirectionsUrl(coords.lat, coords.lng, address),
           }
         : undefined,
-      technicianNotes: `Field scoping intake created via Google Maps address lookup.`,
+      technicianNotes: '',
     };
 
     onCreateJob(partialJob);

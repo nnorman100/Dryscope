@@ -1,4 +1,17 @@
 {
+  "apphosting": {
+    "backendId": "dryscope",
+    "rootDir": "/",
+    "ignore": [
+      "node_modules",
+      ".git",
+      ".next",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "firestore-debug.log",
+      "tsconfig.tsbuildinfo"
+    ]
+  },
   "auth": {
     "providers": {
       "emailPassword": true

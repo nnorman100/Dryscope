@@ -18,20 +18,13 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({
-        success: true,
-        data: {
-          category: categoryHint || 'damage',
-          technicalDescription:
-            'Visual evidence confirms moisture migration along base plate with surface saturation on gypsum substrate. IICRC S500 non-destructive documentation verified.',
-          clientSummary:
-            'Photo confirms affected building materials where our drying equipment is actively operating to prevent further moisture spread.',
-          substrate: 'Drywall & Baseboard Trim',
-          meterReading: categoryHint === 'moisture_meter' ? '32.4% WME' : undefined,
-          thermalDelta: categoryHint === 'thermal' ? '-5.8°F Delta T' : undefined,
-        },
-        source: 'simulated_vision',
-      });
+      // Never guess: a missing key is a server misconfiguration, not a reason
+      // to invent a meter reading or inspection text
+      console.error('[api/analyze-photo] GEMINI_API_KEY is not set');
+      return NextResponse.json(
+        { error: 'Photo analysis is unavailable: GEMINI_API_KEY is not configured on the server.' },
+        { status: 503 }
+      );
     }
 
     const ai = new GoogleGenAI({ apiKey });

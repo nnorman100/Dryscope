@@ -1,5 +1,9 @@
-# Firebase App Hosting settings for Dryscope.
+# Firebase App Hosting settings for DryScope (project dryscope-d6f72).
 # https://firebase.google.com/docs/app-hosting/configure
+#
+# The backend ("dryscope" in firebase.json) lives in us-central1, the same
+# region as the (default) Firestore database. The region is chosen when the
+# backend is created, not here.
 
 # server.ts is a custom server (it hosts the Gemini Live voice socket at
 # /api/live-ws), so we bypass App Hosting's Next.js adapter and ship the
@@ -31,3 +35,12 @@ env:
     secret: gemini-api-key
     availability:
       - RUNTIME
+
+  # Google Maps browser key, inlined into the client bundle at build time.
+  # Create once with `firebase apphosting:secrets:set maps-api-key` and grant
+  # it with `firebase apphosting:secrets:grantaccess maps-api-key`. Restrict the
+  # key by HTTP referrer to the *.hosted.app host and any custom domain.
+  - variable: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    secret: maps-api-key
+    availability:
+      - BUILD

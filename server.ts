@@ -283,6 +283,11 @@ const SCOPING_FUNCTION_DECLARATIONS = [
   }
 ];
 
+if (!process.env.GEMINI_API_KEY) {
+  // The app still serves; every Gemini feature answers with a clear error instead
+  console.error('[server] GEMINI_API_KEY is not set: dictation parsing, photo analysis and the Live walkthrough will refuse requests');
+}
+
 app.prepare().then(() => {
   const server = createServer(async (req, res) => {
     try {
@@ -343,20 +348,18 @@ app.prepare().then(() => {
   async function startLiveRelay(clientWs: WebSocket) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.error('[GeminiLive] Missing GEMINI_API_KEY');
-      clientWs.send(JSON.stringify({ type: 'error', message: 'Missing GEMINI_API_KEY' }));
-      clientWs.close();
+      console.error('[GeminiLive] GEMINI_API_KEY is not set');
+      clientWs.send(
+        JSON.stringify({
+          type: 'error',
+          message: 'Live walkthrough is unavailable: GEMINI_API_KEY is not configured on the server.'
+        })
+      );
+      clientWs.close(1011, 'GEMINI_API_KEY not configured');
       return;
     }
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
-    });
+    const ai = new GoogleGenAI({ apiKey });
 
     let liveSession: any = null;
 

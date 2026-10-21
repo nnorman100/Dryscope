@@ -21,6 +21,7 @@ import {
   Info
 } from 'lucide-react';
 import {
+  GOOGLE_MAPS_ENABLED,
   GOOGLE_MAPS_MAP_ID,
   GMP_INTERNAL_ATTRIBUTION_IDS,
   getDirectionsUrl
@@ -53,7 +54,46 @@ function MapCenterController({ lat, lng }: { lat: number; lng: number }) {
   return null;
 }
 
-export const JobLocationMap: React.FC<JobLocationMapProps> = ({
+/**
+ * Shown in place of the map when NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set.
+ * Keeps the address and a directions link, which need no key.
+ */
+function MapUnavailableNotice({ address, latitude, longitude, height, className }: JobLocationMapProps) {
+  const hasCoords = Boolean(latitude && longitude && (latitude !== 0 || longitude !== 0));
+  const directionsUrl = hasCoords || address ? getDirectionsUrl(latitude || 0, longitude || 0, address) : null;
+  return (
+    <div
+      role="status"
+      className={`relative w-full rounded-xl overflow-hidden border border-dashed border-slate-400 bg-slate-100 text-slate-700 flex flex-col items-center justify-center gap-2 p-4 text-center ${className}`}
+      style={{ height }}
+    >
+      <MapPin className="w-6 h-6 text-slate-400" />
+      <p className="text-xs font-semibold">Map unavailable</p>
+      <p className="text-[11px] text-slate-500 max-w-xs">
+        Google Maps is not configured for this deployment (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set).
+        Addresses can still be typed by hand.
+      </p>
+      {address && <p className="text-[11px] font-medium text-slate-700">{address}</p>}
+      {directionsUrl && (
+        <a
+          href={directionsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] text-sky-700 underline inline-flex items-center gap-1"
+        >
+          <Navigation className="w-3 h-3" /> Open directions
+        </a>
+      )}
+    </div>
+  );
+}
+
+export const JobLocationMap: React.FC<JobLocationMapProps> = (props) => {
+  if (!GOOGLE_MAPS_ENABLED) return <MapUnavailableNotice {...props} />;
+  return <LiveJobLocationMap {...props} />;
+};
+
+const LiveJobLocationMap: React.FC<JobLocationMapProps> = ({
   latitude,
   longitude,
   address,

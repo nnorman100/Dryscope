@@ -3,9 +3,12 @@
  * Provides centralized API key management, attribution tags, and Places utility functions.
  */
 
-export const GOOGLE_MAPS_API_KEY =
-  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
-  'AIzaSyAEOQWesK2Yf1J1KblWQ89DgotTLzrAB-c';
+// Read only from the environment at build time. There is deliberately no
+// fallback key: without NEXT_PUBLIC_GOOGLE_MAPS_API_KEY the map and address
+// autocomplete switch themselves off and say so (see GOOGLE_MAPS_ENABLED).
+export const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+
+export const GOOGLE_MAPS_ENABLED = GOOGLE_MAPS_API_KEY.length > 0;
 
 export const GOOGLE_MAPS_MAP_ID =
   process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID';
