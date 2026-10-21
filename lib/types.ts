@@ -10,10 +10,21 @@ export interface UserAccount {
   name: string;
   email: string;
   role: UserRole;
+  // The company this person works for (tenants/{tenantId}). Clients have none.
+  tenantId?: string;
   title: string;
   companyName: string;
   phone?: string;
   avatarColor?: string;
+}
+
+// A restoration company, stored at tenants/{id}
+export interface Tenant {
+  id: string;
+  name: string;
+  orgSlug: string;
+  createdAt?: string;
+  createdBy?: string;
 }
 
 export type LossPerilType = 'water' | 'mold' | 'water_and_mold';
@@ -149,6 +160,8 @@ export interface DigitalSignature {
 
 export interface RestorationJob {
   id: string;
+  // The company that owns the job; it lives at tenants/{tenantId}/jobs/{id}
+  tenantId?: string;
   jobId: string; // e.g. 'DS-2026-0842'
   status:
     | 'Draft'

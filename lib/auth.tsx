@@ -15,7 +15,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { isStaffRole } from './roles';
+import { isStaffRole, isTenantRole } from './roles';
 import { UserAccount } from './types';
 
 export type AuthStatus = 'loading' | 'signed_out' | 'signed_in';
@@ -23,7 +23,8 @@ export type AuthStatus = 'loading' | 'signed_out' | 'signed_in';
 interface AuthContextValue {
   status: AuthStatus;
   firebaseUser: User | null;
-  // The signed-in person's account. Staff come from /users/{uid}; anyone else
+  // The signed-in person's account. Staff come from their company's
+  // tenants/{tenantId}/members/{uid} doc; anyone else
   // is a client, matched to jobs by their verified email.
   account: UserAccount | null;
   // Clients only see their jobs once Firebase reports their email as verified
@@ -42,18 +43,36 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function loadAccount(user: User): Promise<UserAccount> {
   try {
-    const snap = await getDoc(doc(db, 'users', user.uid));
-    const data = snap.exists() ? snap.data() : null;
-    if (data && isStaffRole(data.role)) {
+    // users/{uid} says which company the person belongs to; their role and
+    // profile live in that company's members/{uid} doc
+    const userSnap = await getDoc(doc(db, 'users', user.uid));
+    const userData = userSnap.exists() ? userSnap.data() : null;
+    const tenantId: string | undefined = userData?.tenantId || undefined;
+    const isSuperadmin = userData?.platformRole === 'superadmin';
+
+    let member: Record<string, any> | null = null;
+    let companyName = '';
+    if (tenantId) {
+      const [memberSnap, tenantSnap] = await Promise.all([
+        getDoc(doc(db, 'tenants', tenantId, 'members', user.uid)),
+        getDoc(doc(db, 'tenants', tenantId)),
+      ]);
+      member = memberSnap.exists() ? memberSnap.data() : null;
+      companyName = tenantSnap.exists() ? tenantSnap.data().name || '' : '';
+    }
+
+    const role = isSuperadmin ? 'superadmin' : isTenantRole(member?.role) ? member?.role : null;
+    if (isStaffRole(role)) {
       return {
         id: user.uid,
-        name: data.name || user.displayName || user.email || 'Staff member',
-        email: data.email || user.email || '',
-        role: data.role,
-        title: data.title || '',
-        companyName: data.companyName || '',
-        phone: data.phone,
-        avatarColor: data.avatarColor,
+        name: member?.name || user.displayName || user.email || 'Staff member',
+        email: member?.email || user.email || '',
+        role,
+        tenantId,
+        title: member?.title || '',
+        companyName,
+        phone: member?.phone,
+        avatarColor: member?.avatarColor,
       };
     }
   } catch (err) {

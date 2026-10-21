@@ -5,7 +5,6 @@ import {
   ShieldAlert,
   Server,
   Activity,
-  Building,
   Users,
   Cpu,
   Key,
@@ -13,41 +12,9 @@ import {
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
+import { CompanyWorkspaces } from './CompanyWorkspaces';
 
 export function SuperadminDashboard() {
-  const tenants = [
-    {
-      name: 'DryScope Disaster Restoration (HQ)',
-      slug: 'dryscope-corp',
-      owner: 'Brett Montgomery',
-      users: 18,
-      plan: 'Enterprise Dedicated',
-      status: 'Active',
-      apiUsage: '84,200 tokens/mo',
-      monthlyVolume: '$142k billed',
-    },
-    {
-      name: 'Cascade Emergency Restoration',
-      slug: 'cascade-restoration',
-      owner: 'David Miller',
-      users: 12,
-      plan: 'Professional',
-      status: 'Active',
-      apiUsage: '42,100 tokens/mo',
-      monthlyVolume: '$88k billed',
-    },
-    {
-      name: 'Pacific Northwest Drying Specialists',
-      slug: 'pnw-drying',
-      owner: 'Rachel Adams',
-      users: 6,
-      plan: 'Growth Tier',
-      status: 'Active',
-      apiUsage: '19,500 tokens/mo',
-      monthlyVolume: '$34k billed',
-    },
-  ];
-
   const auditEvents = [
     {
       id: 'evt-1',
@@ -148,47 +115,7 @@ export function SuperadminDashboard() {
       </div>
 
       {/* Tenancy Management */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
-        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 pb-3 border-b border-slate-100">
-          Provisioned Restoration Company Workspaces
-        </h3>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-slate-50 text-slate-600 uppercase text-[11px] font-bold border-b border-slate-200">
-              <tr>
-                <th className="py-2.5 px-4">Company Name</th>
-                <th className="py-2.5 px-4">Executive Owner</th>
-                <th className="py-2.5 px-4">Seats</th>
-                <th className="py-2.5 px-4">Service Tier</th>
-                <th className="py-2.5 px-4">API Utilization</th>
-                <th className="py-2.5 px-4">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-medium">
-              {tenants.map((t) => (
-                <tr key={t.slug} className="hover:bg-slate-50/50">
-                  <td className="py-3 px-4 font-bold text-slate-900">
-                    <div className="flex items-center gap-2">
-                      <Building className="w-4 h-4 text-purple-600" />
-                      <span>{t.name}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-slate-700">{t.owner}</td>
-                  <td className="py-3 px-4 text-slate-700">{t.users} users</td>
-                  <td className="py-3 px-4 text-slate-700">{t.plan}</td>
-                  <td className="py-3 px-4 font-mono text-slate-600">{t.apiUsage}</td>
-                  <td className="py-3 px-4">
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">
-                      {t.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <CompanyWorkspaces />
 
       {/* Audit Logs */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">

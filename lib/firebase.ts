@@ -8,6 +8,7 @@ import {
   doc,
   getDocFromServer,
   collection,
+  collectionGroup,
   onSnapshot,
   setDoc,
   deleteDoc,
@@ -17,7 +18,7 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
-import { RestorationJob } from './types';
+import { RestorationJob, Tenant } from './types';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -76,16 +77,26 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
+// A company's jobs live at tenants/{tenantId}/jobs/{jobId}
+function jobsCollection(tenantId: string) {
+  return collection(getDb(), 'tenants', tenantId, 'jobs');
+}
+
+function jobTenantId(job: RestorationJob): string {
+  if (!job.tenantId) throw new Error(`Job ${job.id} has no company (tenantId)`);
+  return job.tenantId;
+}
+
 /**
- * Subscribe to real-time changes across all restoration jobs.
+ * Subscribe to real-time changes across one company's restoration jobs.
  * Offline-first: emits local cache immediately, then syncs with remote cloud state.
  */
 export function subscribeToJobs(
+  tenantId: string,
   onUpdate: (jobs: RestorationJob[]) => void,
   onError?: (error: Error) => void
 ): Unsubscribe {
-  const firestore = getDb();
-  const jobsCol = collection(firestore, 'jobs');
+  const jobsCol = jobsCollection(tenantId);
 
   return onSnapshot(
     jobsCol,
@@ -109,8 +120,9 @@ export function subscribeToJobs(
 }
 
 /**
- * Subscribe to the jobs a signed-in client may see: those whose client email is
- * their own. The equality filter is what lets firestore.rules allow the query.
+ * Subscribe to the jobs a signed-in client may see, at any company: those whose
+ * client email is their own. The equality filter is what lets firestore.rules
+ * allow the collection group query.
  */
 export function subscribeToClientJobs(
   email: string,
@@ -118,7 +130,7 @@ export function subscribeToClientJobs(
   onError?: (error: Error) => void
 ): Unsubscribe {
   const firestore = getDb();
-  const jobsQuery = query(collection(firestore, 'jobs'), where('client.email', '==', email));
+  const jobsQuery = query(collectionGroup(firestore, 'jobs'), where('client.email', '==', email));
 
   return onSnapshot(
     jobsQuery,
@@ -144,8 +156,7 @@ export function subscribeToClientJobs(
  * Real-time save / sync of a single restoration job to Firestore
  */
 export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
-  const firestore = getDb();
-  const jobRef = doc(firestore, 'jobs', job.id);
+  const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
   const payload = {
     ...job,
     updatedAt: new Date().toISOString(),
@@ -156,25 +167,74 @@ export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
 /**
  * Delete a job from Firestore
  */
-export async function deleteJobFromFirestore(jobId: string): Promise<void> {
-  const firestore = getDb();
-  await deleteDoc(doc(firestore, 'jobs', jobId));
+export async function deleteJobFromFirestore(tenantId: string, jobId: string): Promise<void> {
+  await deleteDoc(doc(jobsCollection(tenantId), jobId));
 }
 
 /**
- * Seed initial jobs to Firestore if the cloud database is empty
+ * Seed initial jobs into a company if it has none yet
  */
-export async function seedJobsIfEmpty(initialJobs: RestorationJob[]): Promise<void> {
+export async function seedJobsIfEmpty(tenantId: string, initialJobs: RestorationJob[]): Promise<void> {
   try {
-    const firestore = getDb();
-    const jobsCol = collection(firestore, 'jobs');
+    const jobsCol = jobsCollection(tenantId);
     const existing = await getDocs(jobsCol);
     if (existing.empty && initialJobs.length > 0) {
       for (const job of initialJobs) {
-        await setDoc(doc(firestore, 'jobs', job.id), job);
+        await setDoc(doc(jobsCol, job.id), { ...job, tenantId });
       }
     }
   } catch (err) {
     console.warn('Could not seed initial jobs to Firestore:', err);
   }
+}
+
+/**
+ * Subscribe to every company (superadmins only; firestore.rules refuses anyone else).
+ */
+export function subscribeToTenants(
+  onUpdate: (tenants: Tenant[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    collection(getDb(), 'tenants'),
+    (snapshot) => {
+      const list = snapshot.docs.map((d) => ({ ...(d.data() as Omit<Tenant, 'id'>), id: d.id }));
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      onUpdate(list);
+    },
+    (err) => {
+      console.warn('Could not load companies:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+// Company web names become document IDs and, later, /[orgSlug]/ addresses
+export const ORG_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+
+/**
+ * Create a company. The web name is also its tenantId. Superadmins only.
+ */
+export async function createTenant(name: string, orgSlug: string, createdBy: string): Promise<Tenant> {
+  if (!name.trim()) throw new Error('Enter the company name');
+  if (!ORG_SLUG_PATTERN.test(orgSlug)) {
+    throw new Error('Web name: lowercase letters, numbers and dashes only');
+  }
+  const ref = doc(getDb(), 'tenants', orgSlug);
+  if ((await getDocFromServer(ref)).exists()) throw new Error(`A company already uses "${orgSlug}"`);
+  const tenant: Omit<Tenant, 'id'> = {
+    name: name.trim(),
+    orgSlug,
+    createdAt: new Date().toISOString(),
+    createdBy,
+  };
+  await setDoc(ref, tenant);
+  return { ...tenant, id: orgSlug };
+}
+
+/**
+ * Make a company the one this person works in (users/{uid}.tenantId).
+ */
+export async function setUserTenant(uid: string, tenantId: string): Promise<void> {
+  await setDoc(doc(getDb(), 'users', uid), { tenantId }, { merge: true });
 }
