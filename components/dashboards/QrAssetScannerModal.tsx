@@ -25,7 +25,7 @@ interface QrAssetScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   job: RestorationJob;
-  onUpdateJob: (updated: RestorationJob) => void;
+  onUpdateJob: (updated: RestorationJob) => boolean;
 }
 
 export function QrAssetScannerModal({
@@ -71,24 +71,24 @@ export function QrAssetScannerModal({
       if (isCooldownRef.current) return;
       isCooldownRef.current = true;
 
-      playScanSuccessSound();
-
       const previousJob = { ...job };
       const parsed = parseAndApplyQrAssetTag(decodedText, job);
 
+      const saved = onUpdateJob(parsed.updatedJob);
+
+      // Cooldown to avoid repeat scans of the exact same code
+      setTimeout(() => {
+        isCooldownRef.current = false;
+      }, 1800);
+
+      if (!saved) return;
+      playScanSuccessSound();
       setLastScannedResult({
         summary: parsed.summary,
         details: parsed.appliedChangesDescription,
         tag: parsed.tag,
         previousJobState: previousJob,
       });
-
-      onUpdateJob(parsed.updatedJob);
-
-      // Cooldown to avoid repeat scans of the exact same code
-      setTimeout(() => {
-        isCooldownRef.current = false;
-      }, 1800);
     },
     [job, onUpdateJob]
   );

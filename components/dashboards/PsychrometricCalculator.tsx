@@ -27,7 +27,7 @@ import {
 
 interface PsychrometricCalculatorProps {
   job: RestorationJob;
-  onUpdateJob: (updated: RestorationJob) => void;
+  onUpdateJob: (updated: RestorationJob) => boolean;
   onOpenDocSuite?: () => void;
 }
 
@@ -119,7 +119,7 @@ export function PsychrometricCalculator({
       updatedAt: now.toISOString(),
     };
 
-    onUpdateJob(updatedJob);
+    if (!onUpdateJob(updatedJob)) return;
     setActiveDayNumber(activeDayNumber + 1);
     setLogSuccessMessage(
       `✓ Day ${activeDayNumber} Psychrometric Reading recorded! GPP: ${affectedPsychro.gpp} in / ${outletPsychro.gpp} out (${grainDepression.deltaGPP > 0 ? '+' : ''}${grainDepression.deltaGPP} GPP depression). Synced with Document 4.`

@@ -21,7 +21,7 @@ import {
 import { RestorationJob, WaterLossCategory, FinishType, LossPerilType } from '@/lib/types';
 import { AddressAutocompleteInput } from '@/components/maps/AddressAutocompleteInput';
 import { JobLocationMap } from '@/components/maps/JobLocationMap';
-import { ParsedPlaceDetails, getDirectionsUrl } from '@/lib/maps-config';
+import { ParsedPlaceDetails, getDirectionsUrl, GOOGLE_MAPS_ENABLED } from '@/lib/maps-config';
 
 interface NewJobModalProps {
   isOpen: boolean;
@@ -108,7 +108,7 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <span>New Restoration Field Estimate</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Google Maps Connected
+                  {GOOGLE_MAPS_ENABLED ? 'Google Maps Enabled' : 'Google Maps Unavailable'}
                 </span>
               </h3>
               <p className="text-xs text-slate-400">

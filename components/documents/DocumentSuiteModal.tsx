@@ -253,7 +253,7 @@ export function DocumentSuiteModal({
                         IICRC Certification #
                       </div>
                       <div className="text-[10px] text-slate-500 font-mono mt-1">
-                        GPS Fix:{' '}
+                        Job Location:{' '}
                         {job.gpsCoordinates
                           ? `${job.gpsCoordinates.latitude.toFixed(4)}, ${job.gpsCoordinates.longitude.toFixed(4)}`
                           : 'Not recorded'}

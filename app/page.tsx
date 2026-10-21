@@ -19,6 +19,7 @@ import {
   subscribeToJobs,
   subscribeToClientJobs,
   syncJobToFirestore,
+  jobSaveError,
   testConnection,
 } from '@/lib/firebase';
 import { AuthProvider, useAuth } from '@/lib/auth';
@@ -186,11 +187,18 @@ function Home() {
     });
   };
 
-  const handleUpdateJob = (edited: RestorationJob) => {
+  // Returns false when the change was refused, so callers don't report success
+  const handleUpdateJob = (edited: RestorationJob): boolean => {
     const updated = withTenant(edited);
+    const refused = jobSaveError(updated);
+    if (refused) {
+      setSaveError(refused);
+      return false;
+    }
     const previous = jobs.find((j) => j.id === updated.id);
     setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
     saveJob(updated, previous);
+    return true;
   };
 
   const handleCreateNewEstimate = (customJob?: Partial<RestorationJob>) => {

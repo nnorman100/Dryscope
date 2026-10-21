@@ -57,13 +57,13 @@ import {
 } from '@/hooks/usePhotoGeolocation';
 import { AddressAutocompleteInput } from '@/components/maps/AddressAutocompleteInput';
 import { JobLocationMap } from '@/components/maps/JobLocationMap';
-import { ParsedPlaceDetails, getDirectionsUrl } from '@/lib/maps-config';
+import { ParsedPlaceDetails, getDirectionsUrl, GOOGLE_MAPS_ENABLED } from '@/lib/maps-config';
 import { GeminiLiveScopingBar } from '@/components/voice/GeminiLiveScopingBar';
 import { authedFetch } from '@/lib/auth';
 
 interface TechFieldDashboardProps {
   job: RestorationJob;
-  onUpdateJob: (updated: RestorationJob) => void;
+  onUpdateJob: (updated: RestorationJob) => boolean;
   onNavigateToPortal: () => void;
   onNavigateToPipeline?: () => void;
   onOpenDocSuite?: () => void;
@@ -140,7 +140,7 @@ export function TechFieldDashboard({
       },
       updatedAt: new Date().toISOString(),
     };
-    onUpdateJob(updatedJob);
+    if (!onUpdateJob(updatedJob)) return;
     setIsEditingAddress(false);
     setGpsCalibrateMessage(
       `✓ Address synced with Google Maps: ${details.formattedAddress}`
@@ -160,7 +160,7 @@ export function TechFieldDashboard({
       },
       updatedAt: new Date().toISOString(),
     };
-    onUpdateJob(updatedJob);
+    if (!onUpdateJob(updatedJob)) return;
     setGpsCalibrateMessage(
       `✓ GPS Calibrated: ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}${coords.accuracy ? ` (±${Math.round(coords.accuracy)}m)` : ''}`
     );
@@ -319,7 +319,10 @@ export function TechFieldDashboard({
           updatedAt: new Date().toISOString(),
         };
 
-        onUpdateJob(updated);
+        if (!onUpdateJob(updated)) {
+          setParseMessage('Scope not saved: see the message at the top of the page.');
+          return;
+        }
         playConfirmationChime();
 
         const roomCount = d.dimensions?.length || 1;
@@ -407,7 +410,7 @@ export function TechFieldDashboard({
       // Store these coordinates within the job's photos array immediately
       const updatedPhotos = [newPhoto, ...job.photos];
 
-      onUpdateJob({
+      const saved = onUpdateJob({
         ...job,
         photos: updatedPhotos,
         gpsCoordinates: gpsResult?.source === 'browser_geolocation'
@@ -420,6 +423,10 @@ export function TechFieldDashboard({
             }
           : job.gpsCoordinates,
       });
+      if (!saved) {
+        setActivePhotoId(null);
+        setPhotoPreview(null);
+      }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -444,7 +451,6 @@ export function TechFieldDashboard({
 
       const json = await res.json();
       if (json.success && json.data) {
-        setAnalyzedResult(json.data);
 
         // Update the photo in job.photos (matching activePhotoId or top photo)
         const targetId = activePhotoId || (job.photos[0] ? job.photos[0].id : null);
@@ -506,7 +512,7 @@ export function TechFieldDashboard({
           updatedActions.push(json.data.standardAction);
         }
 
-        onUpdateJob({
+        const saved = onUpdateJob({
           ...job,
           photos: updatedPhotos,
           moistureReadings: updatedMoisture,
@@ -514,7 +520,12 @@ export function TechFieldDashboard({
           actions: updatedActions,
           updatedAt: new Date().toISOString(),
         });
+        if (!saved) {
+          setPhotoAnalysisError('Analysis not saved: see the message at the top of the page.');
+          return;
+        }
 
+        setAnalyzedResult(json.data);
         playConfirmationChime();
         speakAssistantFeedback(
           `Photo evidence recorded: ${
@@ -561,7 +572,7 @@ export function TechFieldDashboard({
       setTimeout(() => setGpsCalibrateMessage(null), 4000);
       return;
     }
-    onUpdateJob({
+    const saved = onUpdateJob({
       ...job,
       gpsCoordinates: {
         latitude: result.latitude,
@@ -571,6 +582,10 @@ export function TechFieldDashboard({
         mapUrl: result.mapUrl,
       },
     });
+    if (!saved) {
+      setGpsCalibrateMessage(null);
+      return;
+    }
     setGpsCalibrateMessage(
       `✓ GPS Calibrated: ${result.latitude.toFixed(4)}, ${result.longitude.toFixed(4)}${result.accuracy ? ` (±${Math.round(result.accuracy)}m)` : ''}`
     );
@@ -680,7 +695,7 @@ export function TechFieldDashboard({
         </div>
       </div>
 
-      {/* Google Maps Connected Property Location Card */}
+      {/* Property Location Card */}
       <div className="bg-[#0B192C] text-white rounded-2xl border border-slate-800 shadow-xl p-5 overflow-hidden">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
           <div className="flex items-start gap-3">
@@ -690,7 +705,7 @@ export function TechFieldDashboard({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300 bg-sky-950/80 px-2 py-0.5 rounded border border-sky-800">
-                  Google Maps Connected
+                  {GOOGLE_MAPS_ENABLED ? 'Google Maps Enabled' : 'Google Maps Unavailable'}
                 </span>
                 {job.gpsCoordinates && (
                   <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-800/60">
@@ -1111,12 +1126,8 @@ export function TechFieldDashboard({
                   Tap to Take Photo or Upload Image
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  GPS coordinates automatically captured and stored into photos array
+                  The device location is attached to the photo when location access is allowed
                 </p>
-                <div className="mt-2 inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono">
-                  <MapPin className="w-3 h-3" />
-                  <span>Google Maps Geolocation Pin Active</span>
-                </div>
               </div>
             ) : (
               <div className="space-y-4">

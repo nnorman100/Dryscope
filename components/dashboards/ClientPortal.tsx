@@ -21,7 +21,7 @@ import {
 
 interface ClientPortalProps {
   job: RestorationJob;
-  onUpdateJob: (updated: RestorationJob) => void;
+  onUpdateJob: (updated: RestorationJob) => boolean;
   onOpenDocSuite: () => void;
 }
 
@@ -36,7 +36,7 @@ export function ClientPortal({
   const [hasDrawn, setHasDrawn] = useState(false);
   const [signerName, setSignerName] = useState(job.client.name);
   const [agreeTerms, setAgreeTerms] = useState(job.signature.termsAccepted);
-  const [isSigned, setIsSigned] = useState(job.signature.isSigned);
+  const isSigned = job.signature.isSigned;
 
   // Canvas drawing handlers
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -106,7 +106,6 @@ export function ClientPortal({
     };
 
     onUpdateJob(updatedJob);
-    setIsSigned(true);
   };
 
   return (
@@ -354,7 +353,7 @@ export function ClientPortal({
                 >
                   {job.signature.signedAt
                     ? new Date(job.signature.signedAt).toISOString().split('T')[0]
-                    : new Date().toISOString().split('T')[0]} • On-Site Device
+                    : new Date().toISOString().split('T')[0]}
                 </div>
               </div>
             </div>

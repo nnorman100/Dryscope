@@ -172,19 +172,34 @@ function withoutUndefined<T>(value: T): T {
 // Firestore refuses documents over 1 MiB; photos and signatures are stored inline
 const MAX_JOB_DOCUMENT_BYTES = 1_000_000;
 
-export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
-  const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
-  const payload = withoutUndefined({
+function jobPayload(job: RestorationJob) {
+  return withoutUndefined({
     ...job,
     updatedAt: new Date().toISOString(),
   });
+}
+
+function sizeError(payload: object): string | null {
   const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
-  if (bytes > MAX_JOB_DOCUMENT_BYTES) {
-    throw new Error(
-      `Not saved: this job would be ${Math.round(bytes / 1024)} KB, over the 1 MB limit. Remove a photo or use a smaller one.`
-    );
-  }
-  await setDoc(jobRef, payload);
+  return bytes > MAX_JOB_DOCUMENT_BYTES
+    ? `Not saved: this job would be ${Math.round(bytes / 1024)} KB, over the 1 MB limit. Remove a photo or use a smaller one.`
+    : null;
+}
+
+/**
+ * Why this job cannot be saved, or null when it fits
+ */
+export function jobSaveError(job: RestorationJob): string | null {
+  return sizeError(jobPayload(job));
+}
+
+export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
+  const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
+  const payload = jobPayload(job);
+  const error = sizeError(payload);
+  if (error) throw new Error(error);
+  // Each supplied top-level field (e.g. gpsCoordinates) is replaced whole; omitted fields are kept
+  await setDoc(jobRef, payload, { mergeFields: Object.keys(payload) });
 }
 
 /**
