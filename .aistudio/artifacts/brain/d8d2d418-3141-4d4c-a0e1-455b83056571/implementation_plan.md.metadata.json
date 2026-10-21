@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive architectural recommendations and implementation plan for Field Technician On-Site Scoping with Hands-Free Live Voice Conversation, Rapid-Tap HUD, Multimodal Forensic Photo/Meter/Thermal Inspection, and Cloud Sync via Firebase Firestore.",
-  "updatedAt":  "2026-10-20T19:35:25.094825918Z",
+  "summary":  "Updated master implementation plan with the complete, production-grade Gemini Live Agent Instructions (System Instructions). Details the exact persona, operational guidelines, ANSI/IICRC S500 & S520 rule enforcement, anti-calculation boundary, proactive checklist prompts, and tool execution protocol.",
+  "updatedAt":  "2026-10-20T20:41:13.107497911Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

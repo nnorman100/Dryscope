@@ -14,6 +14,7 @@ import { SuperadminDashboard } from '@/components/dashboards/SuperadminDashboard
 import { ClientPortal } from '@/components/dashboards/ClientPortal';
 import { LoginModal } from '@/components/auth/LoginModal';
 import { DocumentSuiteModal } from '@/components/documents/DocumentSuiteModal';
+import { GoogleMapsProvider } from '@/components/maps/GoogleMapsProvider';
 import {
   subscribeToJobs,
   syncJobToFirestore,
@@ -156,26 +157,26 @@ export default function Home() {
     else if (user.role === 'client') setCurrentView('client');
   };
 
-  const handleCreateNewEstimate = () => {
+  const handleCreateNewEstimate = (customJob?: Partial<RestorationJob>) => {
     const newJob: RestorationJob = {
       id: `job-${Date.now()}`,
-      jobId: `DS-2026-${Math.floor(Math.random() * 800 + 200)}`,
+      jobId: customJob?.jobId || `DS-2026-${Math.floor(Math.random() * 800 + 200)}`,
       status: 'Draft',
       isArchived: false,
-      category: 'Cat 1 (Clean)',
-      finishType: 'Finished',
+      category: customJob?.category || 'Cat 1 (Clean)',
+      finishType: customJob?.finishType || 'Finished',
       cabinetryMultiplier: false,
       afterHours: false,
       client: {
-        name: 'New Client Loss',
-        email: 'client@example.com',
-        phone: '(555) 234-9988',
-        address: '100 Main Street',
-        cityStateZip: 'Eugene, OR 97401',
-        insuranceCarrier: 'State Farm',
-        policyNumber: 'SF-PENDING',
-        claimNumber: 'CLM-PENDING',
-        deductible: 1000,
+        name: customJob?.client?.name || 'New Client Loss',
+        email: customJob?.client?.email || 'client@example.com',
+        phone: customJob?.client?.phone || '(555) 234-9988',
+        address: customJob?.client?.address || '100 Main Street',
+        cityStateZip: customJob?.client?.cityStateZip || 'Eugene, OR 97401',
+        insuranceCarrier: customJob?.client?.insuranceCarrier || 'State Farm',
+        policyNumber: customJob?.client?.policyNumber || 'SF-PENDING',
+        claimNumber: customJob?.client?.claimNumber || `CLM-${Math.floor(Math.random() * 90000 + 10000)}`,
+        deductible: customJob?.client?.deductible ?? 1000,
       },
       dimensions: [
         {
@@ -202,12 +203,13 @@ export default function Home() {
         monitoringHoursPerDay: 1,
       },
       photos: [],
-      technicianNotes: 'Emergency field intake initiated.',
+      technicianNotes: customJob?.technicianNotes || 'Emergency field intake initiated.',
       rawTranscript: '',
       signature: {
         isSigned: false,
         termsAccepted: false,
       },
+      gpsCoordinates: customJob?.gpsCoordinates,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       assignedTechId: currentUser.id,
@@ -244,7 +246,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans">
+    <GoogleMapsProvider>
+      <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans">
       {/* Top Universal Navbar with 1-Click Role Switcher */}
       <Navbar
         currentUser={currentUser}
@@ -377,5 +380,6 @@ export default function Home() {
         job={docSuiteTargetJob || activeJob}
       />
     </div>
+  </GoogleMapsProvider>
   );
 }

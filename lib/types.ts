@@ -16,6 +16,13 @@ export interface UserAccount {
   avatarColor?: string;
 }
 
+export type LossPerilType = 'water' | 'mold' | 'water_and_mold';
+
+export type MoldConditionLevel =
+  | 'Condition 1 (Normal Fungal Ecology)'
+  | 'Condition 2 (Settled Spores)'
+  | 'Condition 3 (Active Microbial Growth)';
+
 export type WaterLossCategory =
   | 'Cat 1 (Clean)'
   | 'Cat 2 (Grey)'
@@ -30,7 +37,9 @@ export type StandardizedAction =
   | 'EXTRACT_WATER'
   | 'DEPLOY_EQUIPMENT'
   | 'HEPA_VACUUM'
-  | 'APPLY_ANTIMICROBIAL';
+  | 'APPLY_ANTIMICROBIAL'
+  | 'CONTAINMENT_SETUP'
+  | 'HEPA_AIR_SCRUBBING';
 
 export interface RoomDimension {
   roomName: string;
@@ -152,6 +161,9 @@ export interface RestorationJob {
   archivedAt?: string;
   settledAmount?: number;
   category: WaterLossCategory;
+  lossType?: LossPerilType;
+  moldCondition?: MoldConditionLevel;
+  containmentRequired?: boolean;
   finishType: FinishType;
   cabinetryMultiplier: boolean; // x2 cabinetry demo multiplier per template A10/M70
   afterHours: boolean; // +$200 emergency after-hours fee

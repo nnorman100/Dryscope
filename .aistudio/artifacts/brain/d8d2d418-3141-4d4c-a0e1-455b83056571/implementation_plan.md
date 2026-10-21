@@ -1,260 +1,209 @@
-# Architectural Recommendations & Implementation Plan: Field Technician Scoping & Cloud Sync
+# Gemini Live Real-Time Conversational Scoping: Unified Master Implementation Plan
 
-Comprehensive architectural blueprint to empower sales and field technicians to rapidly capture measurements, damage photos, moisture meter readings, and thermal imaging on-site using both hands-free live voice conversation and rapid tap buttons, backed by real-time cloud persistence syncing directly with office estimators.
-
----
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> **Confirmed Choices from Clarification**:
-> - **Input Modality**: **Dual-Mode (Hands-Free Live Voice Conversation + Tap Buttons)**. Technicians in crawl spaces or with wet gloves can speak continuously while walking, while technicians needing fast adjustments can tap high-contrast 48px touch controls.
-> - **Data Persistence & Sync**: **Cloud Persistence (Firebase Firestore + Offline Cache)**. Field technicians frequently operate in basements, rural sites, or damaged properties with intermittent or zero cellular reception; the app must persist locally first and auto-sync to office estimators in real time when connectivity is restored.
-
-### Core Recommendations Summary:
-1. **Hands-Free Live Voice Scoping Assistant**: Integrate continuous browser speech-to-text with Gemini parsing on silence pauses. Include audio chimes and voice confirmations ("*Master Bedroom logged: 14x16 with 24-inch flood cut and 2 dehumidifiers*") so the tech never has to look down at their device while walking.
-2. **One-Handed Rapid-Tap Thumb HUD**: Design touch-first controls conforming to mobile ergonomics ($48\text{px}$ touch targets, natural thumb zone) with quick room dimension presets (10x12, 12x15, 14x18), quick steppers for air movers/dehumidifiers, and single-tap standard action directives (`FLOOD_CUT`, `REMOVE_BASEBOARD`, `REMOVE_FLOORING`, `EXTRACT_WATER`, `DEPLOY_EQUIPMENT`, `HEPA_VACUUM`, `APPLY_ANTIMICROBIAL`).
-3. **Forensic Multimodal Vision (Damage, Moisture Meter & Thermal Displays)**: Enhance photo analysis to read LCD screens from Delmhorst/Tramex/Protimeter moisture meters (e.g. 32% WME) and FLIR thermal cameras (extracting $\Delta T$ and thermal boundaries) with strict IICRC S500/S520 technical descriptions alongside layman homeowner summaries.
-4. **Cloud Firestore Sync Architecture**: Deploy a real-time Firestore database (`jobs` collection) with `enableIndexedDbPersistence` and reactive `onSnapshot` listeners, bridging the field technician dashboard with the office estimator dashboard in sub-second latency.
+Complete architectural blueprint to implement a low-latency, bidirectional voice scoping assistant using **Gemini Live (`gemini-3.8-live`)** in DryScope. Sales technicians walking disaster loss sites can speak continuously, receive instant verbal field verifications from a professional restoration voice (`Zephyr`), identify Water vs. Mold estimates, receive proactive IICRC S500/S520 guiding questions, and trigger real-time UI function calls that populate room dimensions, moisture readings, and equipment deployments directly into the job state.
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Executive Summary & User Alignment
 
-### What It Does
-An on-site field scoping engine for disaster mitigation (Water, Fire, Mold). Technicians walk the loss site, dictate structural details hands-free, tap rapid room presets, and snap photos of damage, moisture meters, and thermal cameras. The system extracts raw metrics (dimensions, substrates, meter percentages, equipment counts, standard actions) adhering strictly to IICRC restoration standards—never computing dollar totals in raw field extraction—and pushes updates to the cloud so office estimators can produce Xactimate estimates in real time.
-
-### Target Audience & Persona
-- **Sales & Field Scoping Technicians**: On-site in hazardous, wet, or dimly lit environments, wearing PPE and carrying diagnostic tools. Needs friction-free input without tiny dropdowns.
-- **Office Estimators & Project Managers**: At HQ reviewing incoming field data, photos, and moisture logs simultaneously to draft scopes of work and insurance filings.
-- **Property Owners**: Receiving non-alarming, transparent lay summaries of the drying operations.
-
-### Key Value
-- **Zero Field Bottlenecks**: Halves scoping time by eliminating manual paper logs and double entry.
-- **Forensic Defensibility**: Camera and meter displays are verified with GPS geolocation and timestamp watermarks for carrier compliance.
-- **Immediate Estimator Handoff**: Office estimators can begin drafting insurance estimates before the technician leaves the driveway.
+- **Core Goal**: Hands-free, real-time voice scoping across disaster loss sites integrating directly into DryScope's job cards, transcription state, and Firestore persistence.
+- **Voice Persona**: Professional restoration specialist (`Zephyr`) delivering crisp, standards-compliant spoken feedback.
+- **Loss Peril Identification**: Automated voice classification and 1-tap manual toggle between **Water Damage Mitigation (IICRC S500)** and **Mold Remediation (IICRC S520)**.
+- **Guiding Questions & Clarification**: Proactively guides the technician through missing IICRC items (dimensions $\rightarrow$ moisture readings $\rightarrow$ containment $\rightarrow$ equipment sizing $\rightarrow$ demo actions) with configurable **"Full Co-Pilot"** or **"Confirm Only"** modes.
+- **UI Location**: Sleek, floating interactive dock at the bottom of the viewport with a live 16-channel audio frequency waveform, active room indicator, loss peril badge, and tool execution pills.
+- **Field Resilience**: Noise gating for loud equipment, software audio ducking to prevent speaker feedback loops, active room context tracking, and 1-tap voice undo.
 
 ---
 
-## 2. User Experience & Visual Design
+## 2. Gemini Live Agent Instructions (System Instruction Specification)
 
-### Key User Flows
+Below is the complete, production-grade System Instruction passed to `ai.live.connect` in `server.ts`:
 
-#### Flow A: Hands-Free Walkthrough Scoping
-1. **Activation**: Tech taps the large floating "Hands-Free Scoping Mic" in the bottom thumb zone. A pulsing green ambient indicator signals active listening.
-2. **Dictation**: Tech speaks: *"Living room is 18 by 22 with 10-foot ceilings. Category 2 water loss. 48-inch flood cut needed on exterior walls, carpet and pad need removal. Moisture meter reads 36% WME on bottom drywall. Deploy 4 air movers and 2 LGR dehus."*
-3. **Real-Time Extraction & Voice Chime**: System parses the audio using Gemini, sounds a subtle double-beep chime, and adds the room, equipment, and actions to the active scope cards.
-4. **Hands-Free Confirmation**: A synthetic assistant voice confirms via Web Speech TTS: *"Living Room added: 18 by 22, 48-inch flood cut, 4 air movers, 2 dehumidifiers."*
+```markdown
+You are DryScope Live, an expert disaster mitigation and restoration scoping co-pilot certified in ANSI/IICRC S500 (Water Damage Restoration) and ANSI/IICRC S520 (Professional Mold Remediation).
 
-#### Flow B: One-Handed Rapid-Tap HUD
-1. **Quick Room Selector**: Horizontal thumb carousel with common room tags (`Master Bed`, `Living Rm`, `Kitchen`, `Basement`, `Bath`).
-2. **Dimension Pad**: Tap-steppers for Length, Width, Height ($8\text{ft}$, $9\text{ft}$, $10\text{ft}$, $12\text{ft}$) and Flood Cut height toggles ($0\text{"}$, $24\text{"}$, $48\text{"}$).
-3. **Action Directives Palette**: Single-tap toggle buttons for IICRC standardized actions:
-   - `[+ FLOOD_CUT]`
-   - `[+ REMOVE_BASEBOARD]`
-   - `[+ REMOVE_FLOORING]`
-   - `[+ EXTRACT_WATER]`
-   - `[+ DEPLOY_EQUIPMENT]`
-   - `[+ HEPA_VACUUM]`
-   - `[+ APPLY_ANTIMICROBIAL]`
-4. **Equipment Quick Counter**: Big $+$ / $-$ increment buttons for Air Movers, LGR Dehumidifiers, and HEPA Scrubbers.
+Your role is to act as the hands-free conversational partner for sales technicians walking loss sites. You listen continuously, execute scoping tool calls in real time, deliver crisp verbal confirmations, and proactively prompt for missing IICRC data.
 
-#### Flow C: Multimodal Evidence Capture (Camera & Diagnostic Meters)
-1. **Photo Trigger**: Tap camera icon (or file upload). Live camera opens with targeting guide.
-2. **Category Selection**: 3 big mode buttons:
-   - 📸 **Structural Damage**: Water lines, wet framing, drywall staining, mold colonies.
-   - 📟 **Moisture Meter Display**: Captures digital/analog meter screen; OCR/vision extracts substrate & numerical percentage (e.g. `34.8% WME`).
-   - 🌡️ **Thermal Imaging Screen**: Captures FLIR/Seek thermal screen; extracts temperature delta ($\Delta T$, e.g. `-6.2°F`) and cold perimeter boundary.
-3. **Automatic Forensic Inspection**: Gemini analyzes the photo, attaches GPS coordinates, and displays both technical adjuster notes and layman homeowner summaries.
+### STRICT OPERATIONAL BOUNDARIES & RULES
 
-#### Flow D: Office Estimator Real-Time Mirror
-1. Office estimator opens the Office Dashboard.
-2. An animated sync badge displays: *"Live Field Scoping Active (Tech: Alex Rivera at 1042 Elm St)"*.
-3. New rooms, moisture meter cards, and damage photos populate the screen dynamically via Firestore real-time snapshots with zero page reloads.
+1. RULE 1 — STRICT ANTI-CALCULATION ENFORCEMENT:
+   - NEVER calculate dollar amounts, estimate totals, line item pricing, or area square footages.
+   - Only extract and confirm raw dimensions (length, width, height in feet), linear feet of baseboard, flood cut height (inches), material substrates, and equipment integers.
+   - If a technician or client asks about cost, reply: "I record raw field measurements, substrates, and equipment counts. Your office estimating team and insurance matrix will calculate the final scope pricing."
 
-### Visual Identity & Theme
-- **Aesthetic Direction**: High-contrast, utilitarian industrial design suited for outdoor sunlight and dark basements.
-- **Color Palette**:
-  - Primary Dark Base: Slate-900 (`#0F172A`) & Dark Navy (`#0B192C`)
-  - High-Contrast Accents: Emergency Amber (`#F59E0B`), Moisture Cyan (`#06B6D4`), Thermal Rose (`#F43F5E`), Verified Emerald (`#10B981`)
-  - Clean Text Elements: Neutral unboxed typography with dot separators (`·`) avoiding static pill clutter per `frontend-design` standards.
-- **Touch Target Math**: All field interactive buttons have hitboxes $\ge 48\times 48\text{px}$, with natural bottom-40% thumb zone placement.
+2. RULE 2 — PERIL IDENTIFICATION (WATER VS. MOLD):
+   - Evaluate whether the loss is Water Damage Mitigation (IICRC S500) or Mold Remediation (IICRC S520).
+   - If the technician mentions active pipe leaks, clean overflows, or fresh water intrusion, classify as 'water'.
+   - If the technician mentions visible fungal colonies, black staining, musty microbial odors, settled spores, or containment chambers, classify as 'mold' and identify the Condition level (Condition 1, 2, or 3).
+   - Immediately call the tool `classify_loss_type` with your reasoning when detected.
 
----
+3. RULE 3 — IMMEDIATE TOOL EXECUTION:
+   - Call the appropriate function IMMEDIATELY when the technician states dimensions, moisture readings, equipment, actions, or room transitions. Never wait or batch tool calls.
+   - Functions available: `classify_loss_type`, `set_active_room`, `record_room_dimensions`, `record_moisture_reading`, `record_thermal_reading`, `deploy_equipment`, `add_standardized_action`, `undo_last_action`, `add_field_notes`.
 
-## 3. Key Product Decisions & Trade-Offs
+4. RULE 4 — CRISP VERBAL CONFIRMATIONS:
+   - Keep spoken responses under 2 short sentences.
+   - Speak the exact numbers and materials recorded so the technician has verbal verification while their hands are busy measuring (e.g., "Logged Master Bedroom 14 by 12 with 24-inch flood cut.").
 
-### Decision 1: Dual Input (Hands-Free Live Voice + Tap HUD) vs. Voice-Only
-- **Chosen Approach**: Support both continuous conversational voice dictation and high-speed tap buttons side-by-side.
-- **Why**: Field conditions vary wildly. In noisy environments with running axial air movers (80+ dB), voice dictation struggles; tap buttons ensure 100% operational reliability. When walking through a dark crawl space or holding tools, hands-free voice is dramatically faster.
-- **Alternatives Considered**: Voice-only (fails in high-decibel environments) or manual form entry (too slow, leads to tech frustration).
+5. RULE 5 — PROACTIVE IICRC GUIDING QUESTIONS:
+   - When in Co-Pilot mode, guide the technician through standard IICRC checkpoints:
+     * If room dimensions are stated without moisture readings: "What's your moisture meter reading on the flooring and drywall in this room?"
+     * If a flood cut or baseboard removal is stated without cut height: "What height flood cut are you recommending—24 or 48 inches?"
+     * If mold is identified: "Are we staging critical poly containment barriers and HEPA air scrubbers before demo?"
+     * If drying equipment is unstated: "How many air movers and dehumidifiers are you staging here?"
 
-### Decision 2: Persistence Strategy — Firebase Firestore with Offline Cache vs. SQL or LocalStorage
-- **Chosen Approach**: Firebase Firestore provisioned via `set_up_firebase` tool, with local IndexedDB persistence caching and real-time snapshot listeners (`onSnapshot`).
-- **Why**: 
-  1. *Offline First*: Field technicians frequently lose LTE in basements or rural disaster zones; Firestore automatically queues writes locally and syncs them once connected.
-  2. *Live Multi-Device Collaboration*: Office estimators see updates arrive in real-time as the tech inspects room by room.
-  3. *Zero Relational Complexity*: Scopes are nested document structures with dynamic rooms, moisture readings, and photo metadata.
-- **Alternatives Considered**: 
-  - Pure `localStorage`: Only lives on the technician's single device, cannot sync to the office estimator without manual export/emailing.
-  - Relational Cloud SQL: Requires manual offline caching layer and lacks native reactive client websocket subscriptions out of the box.
+6. RULE 6 — ACTIVE ROOM CONTEXT:
+   - Whenever the technician mentions entering or moving to a new space (e.g., "Now in the kitchen", "Heading downstairs to the basement"), call `set_active_room` immediately so all subsequent readings attach to that room.
 
-### Decision 3: AI Model Selection for Field Multimodal Parsing
-- **Chosen Approach**: `gemini-flash-latest` (or `gemini-3.8-flash`) for audio transcript scoping and photo vision analysis.
-- **Why**: Sub-second latency is critical for technician feedback in the field. Flash provides near-instant JSON extraction of complex dimensions and meter displays with strict zero-cost extraction discipline.
-- **Alternatives Considered**: Heavier models like `gemini-4-argon` (too slow for real-time mobile interactions in the field).
-
----
-
-## 4. Technical Architecture & Data Strategy
-
-### System Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                       FIELD TECHNICIAN WORKSPACE (MOBILE)                   │
-│                                                                             │
-│   ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────┐   │
-│   │ Hands-Free Mic HUD  │   │  Thumb-Zone Tap HUD │   │ Camera / Meter  │   │
-│   │ SpeechRecognition   │   │  48px Room Steppers │   │ Photo Capture   │   │
-│   │ & Live Audio Stream │   │  & Standard Actions │   │ & Geolocation   │   │
-│   └──────────┬──────────┘   └──────────┬──────────┘   └────────┬────────┘   │
-└──────────────┼─────────────────────────┼───────────────────────┼────────────┘
-               │ Raw Audio Transcript    │ Direct Tap State      │ Base64 Image
-               ▼                         ▼                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           SERVER-SIDE PROXY APIS                            │
-│                                                                             │
-│   ┌───────────────────────────────────┐ ┌─────────────────────────────────┐ │
-│   │ POST /api/scope                   │ │ POST /api/analyze-photo         │ │
-│   │ - Structured JSON Schema Engine   │ │ - Substrate & Reading Extractor │ │
-│   │ - Strict Rules (No $ calculations)│ │ - Thermal Delta (ΔT) Extractor  │ │
-│   │ - IICRC Standardized Directives   │ │ - Dual Technical/Client Text    │ │
-│   └─────────────────┬─────────────────┘ └────────────────┬────────────────┘ │
-└─────────────────────┼────────────────────────────────────┼──────────────────┘
-                      │ Extracted Data                     │ Forensic Record
-                      ▼                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   FIREBASE FIRESTORE PERSISTENCE & SYNC                     │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │ Collection: `jobs` (Document: job.id)                               │   │
-│   │ - dimensions: RoomDimension[] (lengthFt, widthFt, floodCut, basebd) │   │
-│   │ - actions: string[] (FLOOD_CUT, REMOVE_BASEBOARD, etc.)             │   │
-│   │ - moistureReadings: MoistureReading[] (substrate, % WME, dryStd)    │   │
-│   │ - thermalReadings: ThermalReading[] (ΔT, perimeterBoundaryDesc)     │   │
-│   │ - equipment: EquipmentDeployment (airMovers, dehumidifiers, etc.)   │   │
-│   │ - photos: PhotoEvidence[] (forensic notes, coordinates, timestamps) │   │
-│   │ - syncMetadata: { lastSyncedAt, modifiedBy, syncStatus }            │   │
-│   └──────────────────────────────────┬──────────────────────────────────┘   │
-└──────────────────────────────────────┼──────────────────────────────────────┘
-                                       │ Real-Time onSnapshot Listener
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        OFFICE ESTIMATOR DASHBOARD (DESKTOP)                 │
-│                                                                             │
-│   ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────┐   │
-│   │ Live Job Scopes     │   │ 4-Doc Insurance     │   │ Psychrometric   │   │
-│   │ Real-time Stream    │   │ Xactimate Exporter  │   │ Drying Log View │   │
-│   └─────────────────────┘   └─────────────────────┘   └─────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Data Schema Mapping
-
-```typescript
-export interface RestorationJob {
-  id: string;
-  client: { name: string; phone: string; address: string; insuranceCarrier?: string; claimNumber?: string };
-  category: 'Cat 1 (Clean)' | 'Cat 2 (Grey)' | 'Cat 3 (Black / Mold)';
-  finishType: 'Finished' | 'Unfinished';
-  cabinetryMultiplier: boolean;
-  afterHours: boolean;
-  
-  // Scoped Dimensions (Strictly raw measurements)
-  dimensions: Array<{
-    id: string;
-    roomName: string;
-    lengthFt: number;
-    widthFt: number;
-    heightFt: number;
-    floodCutHeightInches: number;
-    linearFtBaseboard: number;
-  }>;
-
-  // IICRC Standard Actions
-  actions: Array<
-    | 'FLOOD_CUT'
-    | 'REMOVE_BASEBOARD'
-    | 'REMOVE_FLOORING'
-    | 'EXTRACT_WATER'
-    | 'DEPLOY_EQUIPMENT'
-    | 'HEPA_VACUUM'
-    | 'APPLY_ANTIMICROBIAL'
-  >;
-
-  // Moisture Diagnostic Log
-  moistureReadings: Array<{
-    id: string;
-    roomName: string;
-    substrate: string;
-    readingValue: number;
-    unit: string; // '% WME', 'points', etc.
-    dryStandard: number;
-    isAffected: boolean;
-    timestamp: string;
-    notes?: string;
-  }>;
-
-  // Thermal Camera Scans
-  thermalReadings: Array<{
-    id: string;
-    roomName: string;
-    deltaTFahrenheit: number;
-    perimeterBoundaryDesc: string;
-    timestamp: string;
-  }>;
-
-  // Equipment Deployed
-  equipment: {
-    airMovers: number;
-    dehumidifiers: number;
-    airScrubbers: number;
-    woodFloorSystems: number;
-    dryingDays: number;
-    techHoursOnSite: number;
-    monitoringHoursPerDay: number;
-  };
-
-  // Forensic Photos with Geolocation
-  photos: PhotoEvidence[];
-
-  // Sync Metadata
-  syncStatus?: 'synced' | 'pending' | 'offline';
-  lastSyncedAt?: string;
-}
+7. RULE 7 — CORRECTIONS & UNDO:
+   - If the technician corrects themselves ("Wait, make that 16 feet, not 14"), update the existing room dimensions rather than creating a duplicate.
+   - If the technician says "Cancel that" or "Remove that moisture reading", call `undo_last_action`.
 ```
 
 ---
 
-## 5. Phased Implementation Roadmap
+## 3. Loss Peril Standards & Protocol Differentiation
 
-1. **Phase 1: Cloud Persistence Setup (Firebase Firestore)**
-   - Initialize Firebase setup via `set_up_firebase` tool with user confirmation curtain.
-   - Configure Firestore schema and security rules enforcing role-based access (Techs can create/update scopes; Office Estimators can review and approve).
-   - Implement `useJobSync` hook with real-time `onSnapshot` subscription and offline fallback.
+| Parameter | Water Damage Mitigation (IICRC S500) | Mold Remediation (IICRC S520) |
+| :--- | :--- | :--- |
+| **Primary Objective** | Rapid water extraction, evaporation, & dehumidification | Containment, spore filtration, & controlled porous demo |
+| **Classification** | Cat 1 (Clean), Cat 2 (Grey), Cat 3 (Black) | Condition 1 (Normal), Condition 2 (Settled), Condition 3 (Active Growth) |
+| **Containment** | Open drying (Cat 1/2) or source isolation (Cat 3) | Critical negative air containment barrier mandatory for Condition 3 |
+| **Primary Equipment** | Centrifugal air movers, LGR dehus, extraction units | HEPA air scrubbers (500 CFM), negative air machines, HEPA vacuums |
+| **Air Movement Rule** | High-velocity airflow across wet structural surfaces | **Never** use unrestricted air movers without containment (prevents spore cross-contamination) |
+| **Standard Actions** | `EXTRACT_WATER`, `FLOOD_CUT`, `REMOVE_BASEBOARD` | `CONTAINMENT_SETUP`, `HEPA_VACUUM`, `APPLY_ANTIMICROBIAL`, `REMOVE_DRYWALL` |
 
-2. **Phase 2: Multimodal Photo & Screen Inspector Upgrades**
-   - Enhance `POST /api/analyze-photo` with targeted prompts for moisture meter LCD displays and thermal imaging gradients.
-   - Update `TechFieldDashboard` photo upload/camera card with quick category filters (`Damage Photo`, `Moisture Meter Display`, `Thermal Camera Screen`).
-   - Add substrate and reading auto-fill into the job's `moistureReadings` and `thermalReadings` arrays directly from photo analysis results.
+---
 
-3. **Phase 3: Hands-Free Voice Scoping & Rapid-Tap Thumb HUD**
-   - Implement continuous hands-free voice mode with voice activity detection (VAD), audio double-tone chimes, and TTS confirmation.
-   - Build the thumb-zone tap pad: quick-select room names, dimensional steppers ($1\text{ft}$, $5\text{ft}$, $10\text{ft}$), flood cut height toggles, and single-tap standard action buttons.
-   - Integrate rapid equipment counters with instant local calculation of drying requirements.
+## 4. Conversational Guiding Questions & Confirmation Matrix
 
-4. **Phase 4: Office Estimator Real-Time View & Field Audit Trail**
-   - Add real-time "Field Sync Live" indicator in `OfficeDashboard`.
-   - Implement live updating badge and sound/visual cues when new field photos or scoped rooms land from the job site.
-   - Run compilation and end-to-end lint verification.
+| Trigger Event | Technician Dictation | Gemini Live Response & Action |
+| :--- | :--- | :--- |
+| **Room Dimensions Logged** | *"Living room is 18 by 14 with 9 foot ceilings"* | **Tool:** `record_room_dimensions`<br>**Voice:** *"Recorded Living Room, 18 by 14 with 9-foot ceilings. What's the moisture reading on the hardwood floor?"* |
+| **Vague Demolition Directive** | *"Do a flood cut along the east wall"* | **Voice:** *"What height flood cut are you recommending—24 or 48 inches?"*<br>*(Waits for answer before committing action)* |
+| **Water vs. Mold Clues** | *"Smells musty under the sink, drywall is black and crumbly"* | **Tool:** `classify_loss_type(lossType: 'mold', moldCondition: 'Condition 3')`<br>**Voice:** *"Identified Mold Remediation under IICRC S520 Condition 3. Activating containment protocol. Shall I deploy HEPA air scrubbers?"* |
+| **Equipment Staging** | *"Drop four air movers and a dehu here"* | **Tool:** `deploy_equipment(airMovers: 4, dehu: 1)`<br>**Voice:** *"Logged 4 air movers and 1 LGR dehumidifier for Living Room drying chamber."* |
+| **S520 Mold Air Scrubber Guidance** | Dimensions logged in Mold scope | **Guidance:** *"For this 2,400 cu ft mold chamber, you'll need at least 160 CFM for 4 air changes per hour. Shall I stage one 500 CFM HEPA air scrubber?"* |
+
+---
+
+## 5. End-to-End System Architecture
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Browser Client (TechFieldDashboard)                  │
+│                                                                        │
+│  ┌───────────────────────┐             ┌────────────────────────────┐  │
+│  │ 16kHz PCM Mic Capture │             │ 24kHz Gapless Audio Player │  │
+│  │ (Echo/Noise Filtered) │             │ (NextStartTime Scheduled)  │  │
+│  └──────────┬────────────┘             └─────────────▲──────────────┘  │
+│             │ Base64 Audio Chunk                     │ Base64 Audio    │
+│             ▼                                        │ Output Chunks   │
+│  ┌───────────────────────────────────────────────────┴──────────────┐  │
+│  │     Client WebSocket Hook (useGeminiLive.ts)                     │  │
+│  │     - 16-Band FFT Waveform Math                                  │  │
+│  │     - Tool Dispatcher -> onUpdateJob() -> Firestore Sync         │  │
+│  │     - Software Ducking (Attenuates mic when Gemini speaks)       │  │
+│  └───────────────────────────▲──────────────────────────────────────┘  │
+└──────────────────────────────┼─────────────────────────────────────────┘
+                               │ WebSocket Bridge (/api/live-ws)
+┌──────────────────────────────▼─────────────────────────────────────────┐
+│                     Server Runtime (server.ts)                         │
+│  - Node HTTP Server on Port 3000 + WebSocketServer (ws)                │
+│  - Handles Next.js HTTP routes & upgrades /api/live-ws                 │
+│  - Bridges to Gemini Live Session via @google/genai:                   │
+│                                                                        │
+│    ai.live.connect({                                                   │
+│      model: "gemini-3.8-live",                                         │
+│      config: {                                                         │
+│        responseModalities: [Modality.AUDIO],                           │
+│        speechConfig: { voiceConfig: { voiceName: "Zephyr" } },         │
+│        systemInstruction: RESTORATION_SYSTEM_INSTRUCTION,              │
+│        tools: [{ functionDeclarations: SCOPING_TOOL_DECLARATIONS }]    │
+│      }                                                                 │
+│    })                                                                  │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Tool Declarations (ANSI/IICRC S500 & S520 Enforcement)
+
+1. `classify_loss_type`:
+   - `lossType`: `'water'` | `'mold'` | `'water_and_mold'`
+   - `waterCategory`: `'Cat 1 (Clean)'` | `'Cat 2 (Grey)'` | `'Cat 3 (Black / Mold)'`
+   - `moldCondition`: `'Condition 1 (Normal Fungal Ecology)'` | `'Condition 2 (Settled Spores)'` | `'Condition 3 (Active Microbial Growth)'`
+   - `containmentRequired`: `boolean`
+   - `reasoning`: `string`
+2. `set_active_room`:
+   - `roomName`: `string` (e.g., "Master Bedroom", "Kitchen")
+3. `record_room_dimensions`:
+   - `roomName`: `string`
+   - `lengthFt`: `number`
+   - `widthFt`: `number`
+   - `heightFt`: `number` (default 8)
+   - `floodCutHeightInches`: `number` (optional, e.g. 24 or 48)
+   - `linearFtBaseboard`: `number` (optional)
+4. `record_moisture_reading`:
+   - `roomName`: `string`
+   - `substrate`: `string` (Drywall, Subfloor, Baseboard, Framing)
+   - `readingValue`: `number` (e.g. 32)
+   - `unit`: `string` ('% WME')
+   - `dryStandard`: `number` (default 12)
+5. `record_thermal_reading`:
+   - `roomName`: `string`
+   - `deltaTFahrenheit`: `number` (e.g. -6.4)
+   - `perimeterBoundaryDesc`: `string`
+6. `deploy_equipment`:
+   - `roomName`: `string`
+   - `airMovers`: `number`
+   - `dehumidifiers`: `number`
+   - `airScrubbers`: `number`
+   - `dryingDays`: `number`
+7. `add_standardized_action`:
+   - `action`: `'FLOOD_CUT' | 'REMOVE_BASEBOARD' | 'REMOVE_FLOORING' | 'EXTRACT_WATER' | 'DEPLOY_EQUIPMENT' | 'HEPA_VACUUM' | 'APPLY_ANTIMICROBIAL' | 'CONTAINMENT_SETUP'`
+   - `notes`: `string`
+8. `undo_last_action`:
+   - `targetType`: `string`
+9. `add_field_notes`:
+   - `notes`: `string`
+
+---
+
+## 7. Real-World Field Gap Solutions
+
+1. **Ambient Job-Site Noise Mitigation**:
+   - Web Audio constraints enable hardware echo cancellation, noise suppression, and auto gain control.
+   - Dual noise-gate thresholds on the floating bar (*Standard Room* vs. *Loud Equipment Site*).
+2. **Acoustic Speaker Feedback Prevention**:
+   - Software audio ducking: When Gemini is speaking back (`isModelTurn === true`), the mic audio transmission is gated by 85% to prevent Gemini from talking to itself, while allowing clear vocal barge-in if the technician speaks up.
+3. **Active Room Context Pinning**:
+   - Gemini tracks the `currentActiveRoom` and calls `set_active_room` so readings never attach to the wrong room.
+4. **Smart Overwrite & 1-Tap Undo**:
+   - If a measurement is updated within 60 seconds (e.g. *"Actually 16 feet"*), the existing room is updated rather than duplicated.
+   - 1-tap "Undo Last Action" button on the floating bar reverts the most recent tool call with verbal confirmation.
+5. **Cellular Drop Reconnect & Offline Speech Buffer**:
+   - Exponential backoff WebSocket reconnection with yellow connection badge.
+   - Fallback local queue so spoken notes are never lost if a basement drops cell coverage.
+
+---
+
+## 8. Concrete File Implementation Plan
+
+| File | Purpose & Changes |
+| :--- | :--- |
+| `server.ts` | Custom Node HTTP server + Next.js + `WebSocketServer` at `/api/live-ws`, bridging client audio to `ai.live.connect` with `gemini-3.8-live`, agent instructions, tools, and transcription. |
+| `package.json` | Configure `"dev": "tsx server.ts"` and `"start": "node server.js"`. |
+| `lib/types.ts` | Add `LossPerilType`, `MoldConditionLevel`, and `containmentRequired` to `RestorationJob`. |
+| `hooks/useGeminiLive.ts` | Complete client-side audio engine: 16kHz PCM mic capture, 24kHz playback scheduling, 16-band FFT waveform math, tool execution dispatch, and reconnection state. |
+| `components/voice/GeminiLiveScopingBar.tsx` | Floating bottom visualizer dock: 16 dynamic frequency bars, active peril badge (`💧 Water` / `☣️ Mold`), active room pill, co-pilot mode toggle, live transcript ticker, and undo button. |
+| `components/dashboards/TechFieldDashboard.tsx` | Mount `GeminiLiveScopingBar`, wire tool execution into `onUpdateJob`, and add visual S500 vs. S520 peril checklist. |
+| `components/dashboards/NewJobModal.tsx` | Add explicit Water vs. Mold loss type selector during initial job intake. |
+
+---
+
+## 9. Verification & Validation Steps
+1. Build verification using `compile_applet` (`npm run build`).
+2. Codebase quality audit using `lint_applet` (ensuring 0 errors and 0 warnings).
+3. WebSocket handshake verification on `http://localhost:3000/api/live-ws`.
+4. Multi-room simulated voice walkthrough verifying tool calls for dimensions, moisture readings, equipment, and automatic Water vs. Mold classification.
