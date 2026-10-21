@@ -1,7 +1,7 @@
 # Companies (tenants)
 
 Dryscope serves many restoration companies from one Firebase project
-(`mitigation-project`). Each company's data is kept apart under its own path,
+(`dryscope-d6f72`, its own project, separate from ClaimGuard). Each company's data is kept apart under its own path,
 following the Build Playbook in the Firebase LLM Wiki.
 
 ## Data layout
@@ -39,11 +39,10 @@ their role. There is no screen for this yet.
 
 ## Deploying
 
-Deploy the app first, then the rules and the index, and name the project every
-time, since ClaimGuard shares it:
+Deploy the app first, then the rules and the index:
 
 ```sh
-firebase deploy --project mitigation-project --only firestore
+firebase deploy --project dryscope-d6f72 --only firestore
 ```
 
 The collection group index on `jobs.client.email` in `firestore.indexes.json`

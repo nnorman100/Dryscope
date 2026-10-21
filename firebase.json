@@ -1,7 +1,7 @@
 {
   "firestore": [
     {
-      "database": "ai-studio-dryscopedisaster-d8d2d418-3141-4d4c-a0e1-455b83056571",
+      "database": "(default)",
       "rules": "firestore.rules",
       "indexes": "firestore.indexes.json"
     }
