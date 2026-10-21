@@ -346,7 +346,7 @@ export function ClientPortal({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Signing Date & Verification
+                  Signing Date
                 </label>
                 <div
                   suppressHydrationWarning

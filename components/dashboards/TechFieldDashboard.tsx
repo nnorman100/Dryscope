@@ -410,7 +410,7 @@ export function TechFieldDashboard({
       onUpdateJob({
         ...job,
         photos: updatedPhotos,
-        gpsCoordinates: gpsResult
+        gpsCoordinates: gpsResult?.source === 'browser_geolocation'
           ? {
               latitude: gpsResult.latitude,
               longitude: gpsResult.longitude,
@@ -517,7 +517,7 @@ export function TechFieldDashboard({
 
         playConfirmationChime();
         speakAssistantFeedback(
-          `Forensic evidence verified: ${
+          `Photo evidence recorded: ${
             json.data.meterReading || json.data.thermalDelta || json.data.substrate || 'Photo evidence'
           } recorded on ${json.data.substrate || 'substrate'}.`
         );
@@ -554,10 +554,10 @@ export function TechFieldDashboard({
   };
 
   const handleCalibrateGps = async () => {
-    setGpsCalibrateMessage('Acquiring high-accuracy GPS fix...');
+    setGpsCalibrateMessage('Requesting device location...');
     const result = await captureLocation(job.client.address, job.gpsCoordinates);
-    if (!result) {
-      setGpsCalibrateMessage('Location unavailable: allow location access or set the job address.');
+    if (result?.source !== 'browser_geolocation') {
+      setGpsCalibrateMessage('Device location unavailable: allow location access to calibrate. The job location is unchanged.');
       setTimeout(() => setGpsCalibrateMessage(null), 4000);
       return;
     }
@@ -616,6 +616,7 @@ export function TechFieldDashboard({
       : null;
 
 
+  const previewPhotoGps = job.photos.find((p) => p.id === activePhotoId)?.gps;
   const selectedMapLat = selectedMapPhoto?.gps?.latitude;
   const selectedMapLng = selectedMapPhoto?.gps?.longitude;
 
@@ -1015,7 +1016,7 @@ export function TechFieldDashboard({
                 {isGpsLocating ? (
                   <div className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 animate-pulse">
                     <RefreshCw className="w-3 h-3 animate-spin text-blue-600" />
-                    <span>Acquiring GPS fix...</span>
+                    <span>Requesting device location...</span>
                   </div>
                 ) : job.gpsCoordinates ? (
                   <div className="flex items-center gap-1.5">
@@ -1040,7 +1041,7 @@ export function TechFieldDashboard({
                       type="button"
                       onClick={handleCalibrateGps}
                       className="p-1 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
-                      title="Calibrate / Re-ping Browser GPS Satellite Lock"
+                      title="Calibrate with this device's location"
                     >
                       <Crosshair className="w-3.5 h-3.5 text-slate-600" />
                     </button>
@@ -1059,7 +1060,7 @@ export function TechFieldDashboard({
                     rel="noopener noreferrer"
                     className="font-bold text-emerald-700 hover:underline flex items-center gap-1 ml-2"
                   >
-                    <span>Verify on Google Maps</span>
+                    <span>View on Google Maps</span>
                     <ExternalLink className="w-2.5 h-2.5" />
                   </a>
                 )}
@@ -1128,25 +1129,25 @@ export function TechFieldDashboard({
                   />
 
                   {/* Floating Geolocation Overlay on Preview */}
-                  {job.gpsCoordinates ? (
+                  {previewPhotoGps ? (
                   <div className="absolute bottom-2 left-2 right-2 bg-slate-950/85 backdrop-blur-xs text-white px-3 py-2 rounded-xl flex items-center justify-between text-xs border border-white/10 shadow-lg">
                     <div className="flex items-center gap-1.5 font-mono text-[11px]">
                       <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span className="font-bold">
-                        {job.gpsCoordinates.latitude.toFixed(5)},{' '}
-                        {job.gpsCoordinates.longitude.toFixed(5)}
+                        {previewPhotoGps.latitude.toFixed(5)},{' '}
+                        {previewPhotoGps.longitude.toFixed(5)}
                       </span>
-                      {job.gpsCoordinates.accuracy ? (
+                      {previewPhotoGps.accuracy ? (
                         <span className="text-slate-400 text-[10px]">
-                          (±{Math.round(job.gpsCoordinates.accuracy)}m)
+                          (±{Math.round(previewPhotoGps.accuracy)}m)
                         </span>
                       ) : null}
                     </div>
 
                     <a
                       href={
-                        job.gpsCoordinates.mapUrl ||
-                        buildGoogleMapsUrl(job.gpsCoordinates.latitude, job.gpsCoordinates.longitude)
+                        previewPhotoGps.mapUrl ||
+                        buildGoogleMapsUrl(previewPhotoGps.latitude, previewPhotoGps.longitude)
                       }
                       target="_blank"
                       rel="noopener noreferrer"

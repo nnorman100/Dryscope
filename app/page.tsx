@@ -66,6 +66,7 @@ function Home() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [isDocSuiteOpen, setIsDocSuiteOpen] = useState<boolean>(false);
   const [docSuiteTargetJob, setDocSuiteTargetJob] = useState<RestorationJob | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const uid = account?.id;
   const tenantId = account?.tenantId;
@@ -171,13 +172,25 @@ function Home() {
   const withTenant = (job: RestorationJob): RestorationJob =>
     job.tenantId || !tenantId ? job : { ...job, tenantId };
 
+  // A refused save is undone locally and reported, never left looking saved
+  const saveJob = (job: RestorationJob, previous?: RestorationJob) => {
+    setSaveError(null);
+    syncJobToFirestore(job).catch((err) => {
+      console.warn('Could not save job:', err);
+      setSaveError(err instanceof Error ? err.message : 'This change could not be saved.');
+      setJobs((prev) =>
+        previous
+          ? prev.map((j) => (j.id === job.id ? previous : j))
+          : prev.filter((j) => j.id !== job.id)
+      );
+    });
+  };
+
   const handleUpdateJob = (edited: RestorationJob) => {
     const updated = withTenant(edited);
+    const previous = jobs.find((j) => j.id === updated.id);
     setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
-    // Immediate reactive write to Firestore cloud
-    syncJobToFirestore(updated).catch((err) => {
-      console.warn('Cloud sync error (queued locally):', err);
-    });
+    saveJob(updated, previous);
   };
 
   const handleCreateNewEstimate = (customJob?: Partial<RestorationJob>) => {
@@ -233,7 +246,7 @@ function Home() {
     setJobs((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
     changeView('tech');
-    syncJobToFirestore(newJob).catch(console.warn);
+    saveJob(newJob);
   };
 
   const handleRestoreArchivedJob = (archived: RestorationJob) => {
@@ -252,7 +265,7 @@ function Home() {
     setJobs((prev) => [restored, ...prev]);
     setActiveJobId(restored.id);
     changeView('office');
-    syncJobToFirestore(restored).catch(console.warn);
+    saveJob(restored);
   };
 
   const handleOpenDocSuiteForJob = (target?: RestorationJob) => {
@@ -283,6 +296,18 @@ function Home() {
         canOpenView={(view) => (role ? canOpenView(role, view) : view === 'landing')}
         isCloudConnected={isCloudConnected}
       />
+
+      {saveError && (
+        <div
+          role="alert"
+          className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-800 text-xs flex items-center justify-between gap-3"
+        >
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)} className="font-bold hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Main View Router */}
       <main className="flex-1 flex flex-col">

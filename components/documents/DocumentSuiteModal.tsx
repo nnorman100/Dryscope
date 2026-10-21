@@ -448,7 +448,7 @@ export function DocumentSuiteModal({
                   DOCUMENT 4: FORENSIC MOISTURE & THERMAL IMAGING LOG
                 </h3>
                 <p className="text-xs text-slate-600">
-                  Psychrometric Record & Calibrated Substrate Data
+                  Psychrometric Record & Substrate Moisture Data
                 </p>
               </div>
 

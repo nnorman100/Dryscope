@@ -169,13 +169,22 @@ function withoutUndefined<T>(value: T): T {
   return value;
 }
 
+// Firestore refuses documents over 1 MiB; photos and signatures are stored inline
+const MAX_JOB_DOCUMENT_BYTES = 1_000_000;
+
 export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
   const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
   const payload = withoutUndefined({
     ...job,
     updatedAt: new Date().toISOString(),
   });
-  await setDoc(jobRef, payload, { merge: true });
+  const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+  if (bytes > MAX_JOB_DOCUMENT_BYTES) {
+    throw new Error(
+      `Not saved: this job would be ${Math.round(bytes / 1024)} KB, over the 1 MB limit. Remove a photo or use a smaller one.`
+    );
+  }
+  await setDoc(jobRef, payload);
 }
 
 /**
