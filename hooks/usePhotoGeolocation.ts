@@ -89,25 +89,25 @@ export function usePhotoGeolocation() {
 
   /**
    * Capture real-time geolocation with browser GPS.
-   * If GPS is unavailable or blocked, falls back cleanly to provided site coordinates.
+   * If GPS is unavailable or blocked, falls back to the job's stored site
+   * coordinates, or resolves null when the job has none.
    */
   const captureLocation = useCallback(
     async (
       fallbackAddress?: string,
       fallbackCoords?: { latitude: number; longitude: number; address?: string }
-    ): Promise<PhotoGpsCoordinates> => {
+    ): Promise<PhotoGpsCoordinates | null> => {
       setIsLocating(true);
       setGeoError(null);
 
       const timestamp = new Date().toISOString();
 
-      return new Promise<PhotoGpsCoordinates>((resolve) => {
+      return new Promise<PhotoGpsCoordinates | null>((resolve) => {
         if (typeof window === 'undefined' || !('geolocation' in navigator)) {
           const fallback = createFallbackCoordinates(
             fallbackCoords,
             fallbackAddress,
-            timestamp,
-            'Browser does not support geolocation'
+            timestamp
           );
           setGeoError('Geolocation unsupported by browser');
           setIsLocating(false);
@@ -164,8 +164,7 @@ export function usePhotoGeolocation() {
             const fallback = createFallbackCoordinates(
               fallbackCoords,
               fallbackAddress,
-              timestamp,
-              errMsg
+              timestamp
             );
 
             setCurrentCoords(fallback);
@@ -194,23 +193,22 @@ export function usePhotoGeolocation() {
 }
 
 /**
- * Creates standardized fallback coordinates from job site data or defaults
+ * Creates fallback coordinates from the job's stored site location, or null when it has none
  */
 function createFallbackCoordinates(
   fallbackCoords?: { latitude: number; longitude: number; address?: string },
   fallbackAddress?: string,
-  timestamp?: string,
-  _reason?: string
-): PhotoGpsCoordinates {
-  const lat = fallbackCoords?.latitude ?? 44.0462;
-  const lng = fallbackCoords?.longitude ?? -123.022;
+  timestamp?: string
+): PhotoGpsCoordinates | null {
+  if (!fallbackCoords) return null;
+  const lat = fallbackCoords.latitude;
+  const lng = fallbackCoords.longitude;
   const time = timestamp ?? new Date().toISOString();
-  const addr = fallbackCoords?.address || fallbackAddress || '742 Evergreen Terrace, Springfield, OR';
+  const addr = fallbackCoords.address || fallbackAddress;
 
   return {
     latitude: lat,
     longitude: lng,
-    accuracy: 12.0, // estimated site accuracy
     altitude: null,
     address: addr,
     mapUrl: buildGoogleMapsUrl(lat, lng),

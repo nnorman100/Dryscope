@@ -3,14 +3,15 @@
 import React, { useState } from 'react';
 import { FirebaseError } from 'firebase/app';
 import { useAuth } from '@/lib/auth';
-import { X, ArrowRight, Lock, Mail, User, Loader2 } from 'lucide-react';
+import { X, ArrowRight, Lock, Mail, Loader2 } from 'lucide-react';
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type Mode = 'sign_in' | 'sign_up' | 'reset';
+// Public self sign-up is off: accounts are created by the company (docs/sign-in.md)
+type Mode = 'sign_in' | 'reset';
 
 // Email/password is the sign-in method (enabled through firebase.json). Google
 // stays off until its provider is set up in Firebase and this flag is 'true'.
@@ -23,10 +24,8 @@ function describeAuthError(err: unknown): string {
     case 'auth/wrong-password':
     case 'auth/user-not-found':
       return 'That email and password do not match an account.';
-    case 'auth/email-already-in-use':
-      return 'An account already exists for that email. Sign in instead.';
-    case 'auth/weak-password':
-      return 'Use a password of at least 6 characters.';
+    case 'auth/admin-restricted-operation':
+      return 'New accounts are created by your company. Ask your office to set one up for you.';
     case 'auth/invalid-email':
       return 'Enter a valid email address.';
     case 'auth/too-many-requests':
@@ -46,9 +45,8 @@ function describeAuthError(err: unknown): string {
 }
 
 export function LoginModal({ isOpen, onClose }: LoginModalProps) {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
+  const { signInWithGoogle, signInWithEmail, resetPassword } = useAuth();
   const [mode, setMode] = useState<Mode>('sign_in');
-  const [nameInput, setNameInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [isBusy, setIsBusy] = useState(false);
@@ -76,8 +74,6 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     e.preventDefault();
     if (mode === 'sign_in') {
       run(() => signInWithEmail(emailInput, passwordInput), true);
-    } else if (mode === 'sign_up') {
-      run(() => signUpWithEmail(nameInput, emailInput, passwordInput), true);
     } else {
       run(async () => {
         await resetPassword(emailInput);
@@ -93,7 +89,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
     setNotice(null);
   };
 
-  const title = mode === 'sign_up' ? 'Create your account' : mode === 'reset' ? 'Reset your password' : 'Sign in to DryScope';
+  const title = mode === 'reset' ? 'Reset your password' : 'Sign in to DryScope';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
@@ -107,7 +103,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
             <div>
               <h2 className="text-lg font-bold">{title}</h2>
               <p className="text-xs text-slate-300">
-                Staff and homeowners sign in with their own email
+                Sign in with the email your company set up for you
               </p>
             </div>
           </div>
@@ -150,22 +146,6 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3.5">
-            {mode === 'sign_up' && (
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Your name</label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    autoComplete="name"
-                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
-                  />
-                </div>
-              </div>
-            )}
-
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">Email address</label>
               <div className="relative">
@@ -204,7 +184,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     onChange={(e) => setPasswordInput(e.target.value)}
                     required
                     minLength={6}
-                    autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
+                    autoComplete="current-password"
                     className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-medium"
                   />
                 </div>
@@ -232,7 +212,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
               ) : (
                 <>
                   <span>
-                    {mode === 'sign_in' ? 'Sign in' : mode === 'sign_up' ? 'Create account' : 'Send reset link'}
+                    {mode === 'sign_in' ? 'Sign in' : 'Send reset link'}
                   </span>
                   <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
                 </>
@@ -242,12 +222,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
           <p className="text-center text-xs text-slate-500">
             {mode === 'sign_in' ? (
-              <>
-                New here?{' '}
-                <button type="button" onClick={() => switchMode('sign_up')} className="text-emerald-700 font-semibold hover:underline">
-                  Create an account
-                </button>
-              </>
+              <>Need an account? Your company&apos;s office creates staff accounts.</>
             ) : (
               <button type="button" onClick={() => switchMode('sign_in')} className="text-emerald-700 font-semibold hover:underline">
                 Back to sign in

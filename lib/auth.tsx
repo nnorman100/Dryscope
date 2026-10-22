@@ -4,14 +4,12 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   GoogleAuthProvider,
   User,
-  createUserWithEmailAndPassword,
   onIdTokenChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
-  updateProfile,
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -34,7 +32,8 @@ interface AuthContextValue {
   resendVerificationEmail: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (name: string, email: string, password: string) => Promise<void>;
+  // There is no sign-up: accounts are created by the company (docs/sign-in.md)
+  // and the Firebase project itself refuses self-registration.
   resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -132,12 +131,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     signInWithEmail: async (email, password) => {
       await signInWithEmailAndPassword(auth, email, password);
-    },
-    signUpWithEmail: async (name, email, password) => {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      if (name) await updateProfile(cred.user, { displayName: name });
-      // Clients only see their jobs once their email is verified
-      await sendEmailVerification(cred.user);
     },
     resetPassword: async (email) => {
       await sendPasswordResetEmail(auth, email);

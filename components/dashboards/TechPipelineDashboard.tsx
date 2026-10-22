@@ -73,7 +73,7 @@ export function TechPipelineDashboard({
   const completedCount = activeJobs.filter((j) => j.status === 'Completed').length;
 
   const totalClosed = authorizedCount + completedCount;
-  const closeRate = activeJobs.length > 0 ? Math.round((totalClosed / activeJobs.length) * 100) : 75;
+  const closeRate = activeJobs.length > 0 ? Math.round((totalClosed / activeJobs.length) * 100) : null;
 
   const totalPipelineValue = activeJobs.reduce((acc, j) => {
     const p = calculatePricingBreakdown(j);
@@ -90,7 +90,6 @@ export function TechPipelineDashboard({
               <TrendingUp className="w-3.5 h-3.5" />
               Sales Technician Pipeline
             </span>
-            <span className="text-xs text-slate-400">Nate Norman (Senior Sales Tech)</span>
           </div>
           <h2 className="text-2xl font-black text-white mt-1">
             Active Restoration Sales & Scoping Pipeline
@@ -156,7 +155,7 @@ export function TechPipelineDashboard({
             Close / Win Rate
           </span>
           <div className="text-2xl font-black text-blue-600 mt-1 font-mono">
-            {closeRate}%
+            {closeRate === null ? '—' : `${closeRate}%`}
           </div>
           <p className="text-[10px] text-slate-400 mt-0.5">Signed proposals / visits</p>
         </div>

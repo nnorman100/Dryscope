@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MapPin, Loader2, X, Search, CheckCircle2 } from 'lucide-react';
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import { useAutocompleteSuggestions } from './useAutocompleteSuggestions';
-import { extractPlaceDetails, ParsedPlaceDetails } from '@/lib/maps-config';
+import { extractPlaceDetails, GOOGLE_MAPS_ENABLED, ParsedPlaceDetails } from '@/lib/maps-config';
 
 interface AddressAutocompleteInputProps {
   value: string;
@@ -176,9 +176,18 @@ export const AddressAutocompleteInput: React.FC<AddressAutocompleteInputProps> =
               <X className="w-3.5 h-3.5" />
             </button>
           )}
-          <span className="text-[10px] font-mono px-1 py-0.5 bg-slate-800 text-sky-400 border border-slate-700 rounded">
-            Maps
-          </span>
+          {GOOGLE_MAPS_ENABLED ? (
+            <span className="text-[10px] font-mono px-1 py-0.5 bg-slate-800 text-sky-400 border border-slate-700 rounded">
+              Maps
+            </span>
+          ) : (
+            <span
+              className="text-[10px] font-mono px-1 py-0.5 bg-slate-800 text-amber-400 border border-slate-700 rounded"
+              title="Google Maps is not configured (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY); type the address by hand"
+            >
+              Manual
+            </span>
+          )}
         </div>
       </div>
 

@@ -32,6 +32,12 @@ export function DocumentSuiteModal({
     'proposal'
   );
   const pricing = calculatePricingBreakdown(job);
+  const peakAffectedReading = job.moistureReadings
+    .filter((m) => m.isAffected)
+    .reduce<RestorationJob['moistureReadings'][number] | null>(
+      (peak, m) => (!peak || m.readingValue > peak.readingValue ? m : peak),
+      null
+    );
 
   if (!isOpen) return null;
 
@@ -131,9 +137,6 @@ export function DocumentSuiteModal({
               <p className="text-xs text-slate-500 mt-0.5">
                 IICRC Certified Water, Fire, and Mold Remediation Contractors
               </p>
-              <p className="text-xs text-slate-500">
-                Direct Dispatch: (555) 234-8900 • 24/7 Emergency Line
-              </p>
             </div>
 
             <div className="text-right text-xs">
@@ -141,7 +144,7 @@ export function DocumentSuiteModal({
                 JOB ID: {job.jobId}
               </div>
               <div className="text-slate-500" suppressHydrationWarning>
-                DATE: {job.createdAt ? job.createdAt.split('T')[0] : '2026-10-20'}
+                DATE: {job.createdAt ? job.createdAt.split('T')[0] : 'Not recorded'}
               </div>
               <div className="text-slate-500 font-medium">
                 CARRIER: {job.client.insuranceCarrier}
@@ -227,7 +230,8 @@ export function DocumentSuiteModal({
                           {job.signature.signedByName || job.client.name}
                         </div>
                         <div className="text-[10px] text-slate-500 font-mono">
-                          Timestamp: {job.signature.signedAt} • IP: {job.signature.ipAddress}
+                          Timestamp: {job.signature.signedAt || 'Not recorded'} • IP:{' '}
+                          {job.signature.ipAddress || 'Not recorded'}
                         </div>
                       </div>
                     ) : (
@@ -242,14 +246,17 @@ export function DocumentSuiteModal({
                       DRYSCOPE CERTIFIED TECHNICIAN:
                     </span>
                     <div className="border border-slate-200 bg-slate-50 p-3 rounded-lg">
-                      <div className="font-bold text-xs text-slate-900">
-                        Nate Norman, Senior Restoration Field Tech
+                      <div className="h-8 border-b border-slate-400 flex items-end pb-0.5 text-[10px] text-slate-400">
+                        Name / Title
                       </div>
-                      <div className="text-[10px] text-slate-500">
-                        IICRC Certification #WRT-49102-S500
+                      <div className="h-6 border-b border-slate-400 flex items-end pb-0.5 text-[10px] text-slate-400">
+                        IICRC Certification #
                       </div>
                       <div className="text-[10px] text-slate-500 font-mono mt-1">
-                        GPS Fix: {job.gpsCoordinates?.latitude.toFixed(4) || '44.0462'}, {job.gpsCoordinates?.longitude.toFixed(4) || '-123.0220'}
+                        Job Location:{' '}
+                        {job.gpsCoordinates
+                          ? `${job.gpsCoordinates.latitude.toFixed(4)}, ${job.gpsCoordinates.longitude.toFixed(4)}`
+                          : 'Not recorded'}
                       </div>
                     </div>
                   </div>
@@ -383,7 +390,7 @@ export function DocumentSuiteModal({
                   DOCUMENT 3: IICRC S500 / S520 SCOPE DEFENSE JUSTIFICATION
                 </h3>
                 <p className="text-xs text-slate-600">
-                  To: Desk Adjuster Marcus Bradley • Carrier: {job.client.insuranceCarrier}
+                  To: Desk Adjuster{job.client.adjusterName ? ` ${job.client.adjusterName}` : ''} • Carrier: {job.client.insuranceCarrier}
                 </p>
               </div>
 
@@ -392,7 +399,7 @@ export function DocumentSuiteModal({
                   RE: Claim #{job.client.claimNumber} • Technical Defense for Flood Cut & Equipment Days
                 </p>
                 <p>
-                  Dear Mr. Bradley,
+                  Dear {job.client.adjusterName || 'Adjuster'},
                 </p>
                 <p className="mt-2">
                   This letter serves as forensic justification for the emergency mitigation scope deployed at {job.client.address}. All actions were taken in strict compliance with the American National Standards Institute (ANSI) / IICRC S500 Standard for Professional Water Damage Restoration.
@@ -403,28 +410,31 @@ export function DocumentSuiteModal({
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <h5 className="font-bold text-slate-900">1. Forensic Justification for Flood Cuts:</h5>
                   <p className="mt-1">
-                    Moisture meter readings taken on site registered at 34.5% WME in gypsum drywall, exceeding the dry standard of 12.0% WME. Under S500 §13.5.6, gypsum board subjected to core wicking above 16 inches must be removed to a minimum of 24 inches to allow structural wall cavity drying and inhibit Aspergillus / Penicillium colonization.
+                    {peakAffectedReading
+                      ? `Moisture meter readings taken on site registered at ${peakAffectedReading.readingValue} ${peakAffectedReading.unit} in ${peakAffectedReading.substrate}, exceeding the dry standard of ${peakAffectedReading.dryStandard} ${peakAffectedReading.unit}.`
+                      : 'No affected moisture readings are recorded for this job.'}{' '}
+                    Under S500 §13.5.6, gypsum board subjected to core wicking above 16 inches must be removed to a minimum of 24 inches to allow structural wall cavity drying and inhibit Aspergillus / Penicillium colonization.
                   </p>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <h5 className="font-bold text-slate-900">2. Psychrometric Equipment Calculations:</h5>
                   <p className="mt-1">
-                    The placement of 4 centrifugal air movers and 1 LGR dehumidifier adheres to the S500 air exchange formula for Class 2/3 drying environments. Dehumidification capacity must offset the high evaporation rate generated by structural fans to maintain grains per pound (GPP) depression.
+                    The placement of {job.equipment.airMovers} centrifugal air movers and {job.equipment.dehumidifiers} LGR dehumidifiers adheres to the S500 air exchange formula for Class 2/3 drying environments. Dehumidification capacity must offset the high evaporation rate generated by structural fans to maintain grains per pound (GPP) depression.
                   </p>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <h5 className="font-bold text-slate-900">3. Non-Speculative Scoping:</h5>
                   <p className="mt-1">
-                    All measurements in this claim are actual field dimensions verified via laser meter and multimodal OCR. No speculative multipliers or unverified line items are included.
+                    All measurements in this claim are the field dimensions recorded for this job. No speculative multipliers or unverified line items are included.
                   </p>
                 </div>
               </div>
 
               <div className="pt-4">
                 <p>Sincerely,</p>
-                <p className="font-bold text-slate-900 mt-1">Courtney Jenkins & Nate Norman</p>
+                <div className="h-8 w-64 border-b border-slate-400 mt-1" />
                 <p className="text-slate-500">DryScope Restoration Technical Scoping Division</p>
               </div>
             </div>
@@ -438,7 +448,7 @@ export function DocumentSuiteModal({
                   DOCUMENT 4: FORENSIC MOISTURE & THERMAL IMAGING LOG
                 </h3>
                 <p className="text-xs text-slate-600">
-                  Psychrometric Record & Calibrated Substrate Data
+                  Psychrometric Record & Substrate Moisture Data
                 </p>
               </div>
 
@@ -541,7 +551,7 @@ export function DocumentSuiteModal({
                       FORENSIC PHOTO EVIDENCE LEDGER & GEOLOCATION AUDIT ({job.photos.length} PHOTOS):
                     </h4>
                     <span className="text-[10px] text-slate-500 font-mono">
-                      GPS Device Verification • Google Maps Validated
+                      Locations as recorded per photo
                     </span>
                   </div>
 
@@ -553,14 +563,15 @@ export function DocumentSuiteModal({
                         <th className="p-2">Substrate / Reading</th>
                         <th className="p-2">Forensic Scope Description</th>
                         <th className="p-2">GPS Coordinates</th>
-                        <th className="p-2 text-right">Google Maps Verification</th>
+                        <th className="p-2 text-right">Google Maps Link</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-mono text-[10px]">
                       {job.photos.map((photo, idx) => {
-                        const lat = photo.gps?.latitude ?? job.gpsCoordinates?.latitude ?? 44.0462;
-                        const lng = photo.gps?.longitude ?? job.gpsCoordinates?.longitude ?? -123.022;
-                        const gmapsUrl = photo.gps?.mapUrl || `https://www.google.com/maps?q=${lat},${lng}`;
+                        const lat = photo.gps?.latitude;
+                        const lng = photo.gps?.longitude;
+                        const hasLocation = lat != null && lng != null;
+                        const gmapsUrl = photo.gps?.mapUrl || (hasLocation ? `https://www.google.com/maps?q=${lat},${lng}` : '');
 
                         return (
                           <tr key={photo.id || idx}>
@@ -597,20 +608,31 @@ export function DocumentSuiteModal({
                               {photo.technicalDescription}
                             </td>
                             <td className="p-2 font-mono text-slate-800">
-                              {lat.toFixed(5)}°, {lng.toFixed(5)}°
-                              <span className="block text-[9px] text-slate-400 font-sans">
-                                {photo.gps?.accuracy ? `±${Math.round(photo.gps.accuracy)}m` : '±4m'}
-                              </span>
+                              {hasLocation ? `${lat.toFixed(5)}°, ${lng.toFixed(5)}°` : 'Not recorded'}
+                              {hasLocation && (
+                                <span className="block text-[9px] text-slate-400 font-sans">
+                                  {photo.gps?.source === 'browser_geolocation' ? 'Device GPS' : 'Job site location'}
+                                </span>
+                              )}
+                              {photo.gps?.accuracy ? (
+                                <span className="block text-[9px] text-slate-400 font-sans">
+                                  ±{Math.round(photo.gps.accuracy)}m
+                                </span>
+                              ) : null}
                             </td>
                             <td className="p-2 text-right font-sans">
-                              <a
-                                href={gmapsUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 font-bold text-emerald-700 hover:text-emerald-900 hover:underline"
-                              >
-                                <span>Open Google Maps ↗</span>
-                              </a>
+                              {gmapsUrl ? (
+                                <a
+                                  href={gmapsUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 font-bold text-emerald-700 hover:text-emerald-900 hover:underline"
+                                >
+                                  <span>Open Google Maps ↗</span>
+                                </a>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
                             </td>
                           </tr>
                         );

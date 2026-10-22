@@ -12,7 +12,6 @@ import {
   onSnapshot,
   setDoc,
   deleteDoc,
-  getDocs,
   query,
   where,
   Unsubscribe,
@@ -155,13 +154,52 @@ export function subscribeToClientJobs(
 /**
  * Real-time save / sync of a single restoration job to Firestore
  */
-export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
-  const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
-  const payload = {
+// Firestore rejects undefined field values; optional job fields left unset are omitted instead
+function withoutUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v !== undefined).map(withoutUndefined) as T;
+  }
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, withoutUndefined(v)])
+    ) as T;
+  }
+  return value;
+}
+
+// Firestore refuses documents over 1 MiB; photos and signatures are stored inline
+const MAX_JOB_DOCUMENT_BYTES = 1_000_000;
+
+function jobPayload(job: RestorationJob) {
+  return withoutUndefined({
     ...job,
     updatedAt: new Date().toISOString(),
-  };
-  await setDoc(jobRef, payload, { merge: true });
+  });
+}
+
+function sizeError(payload: object): string | null {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+  return bytes > MAX_JOB_DOCUMENT_BYTES
+    ? `Not saved: this job would be ${Math.round(bytes / 1024)} KB, over the 1 MB limit. Remove a photo or use a smaller one.`
+    : null;
+}
+
+/**
+ * Why this job cannot be saved, or null when it fits
+ */
+export function jobSaveError(job: RestorationJob): string | null {
+  return sizeError(jobPayload(job));
+}
+
+export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
+  const jobRef = doc(jobsCollection(jobTenantId(job)), job.id);
+  const payload = jobPayload(job);
+  const error = sizeError(payload);
+  if (error) throw new Error(error);
+  // Each supplied top-level field (e.g. gpsCoordinates) is replaced whole; omitted fields are kept
+  await setDoc(jobRef, payload, { mergeFields: Object.keys(payload) });
 }
 
 /**
@@ -169,23 +207,6 @@ export async function syncJobToFirestore(job: RestorationJob): Promise<void> {
  */
 export async function deleteJobFromFirestore(tenantId: string, jobId: string): Promise<void> {
   await deleteDoc(doc(jobsCollection(tenantId), jobId));
-}
-
-/**
- * Seed initial jobs into a company if it has none yet
- */
-export async function seedJobsIfEmpty(tenantId: string, initialJobs: RestorationJob[]): Promise<void> {
-  try {
-    const jobsCol = jobsCollection(tenantId);
-    const existing = await getDocs(jobsCol);
-    if (existing.empty && initialJobs.length > 0) {
-      for (const job of initialJobs) {
-        await setDoc(doc(jobsCol, job.id), { ...job, tenantId });
-      }
-    }
-  } catch (err) {
-    console.warn('Could not seed initial jobs to Firestore:', err);
-  }
 }
 
 /**

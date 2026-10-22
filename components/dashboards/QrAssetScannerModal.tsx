@@ -3,17 +3,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import jsQR from 'jsqr';
 import { RestorationJob, ScannedAssetTag } from '@/lib/types';
-import {
-  parseAndApplyQrAssetTag,
-  playScanSuccessSound,
-  QR_SAMPLE_PRESETS,
-  QrSamplePreset,
-} from '@/lib/qrAssetParser';
+import { parseAndApplyQrAssetTag, playScanSuccessSound } from '@/lib/qrAssetParser';
 import {
   Camera,
   Upload,
   X,
-  Sparkles,
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
@@ -25,14 +19,13 @@ import {
   Undo2,
   FileText,
   Barcode,
-  Zap,
 } from 'lucide-react';
 
 interface QrAssetScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   job: RestorationJob;
-  onUpdateJob: (updated: RestorationJob) => void;
+  onUpdateJob: (updated: RestorationJob) => boolean;
 }
 
 export function QrAssetScannerModal({
@@ -41,7 +34,7 @@ export function QrAssetScannerModal({
   job,
   onUpdateJob,
 }: QrAssetScannerModalProps) {
-  const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'presets'>('camera');
+  const [activeTab, setActiveTab] = useState<'camera' | 'upload'>('camera');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -78,24 +71,24 @@ export function QrAssetScannerModal({
       if (isCooldownRef.current) return;
       isCooldownRef.current = true;
 
-      playScanSuccessSound();
-
       const previousJob = { ...job };
       const parsed = parseAndApplyQrAssetTag(decodedText, job);
 
+      const saved = onUpdateJob(parsed.updatedJob);
+
+      // Cooldown to avoid repeat scans of the exact same code
+      setTimeout(() => {
+        isCooldownRef.current = false;
+      }, 1800);
+
+      if (!saved) return;
+      playScanSuccessSound();
       setLastScannedResult({
         summary: parsed.summary,
         details: parsed.appliedChangesDescription,
         tag: parsed.tag,
         previousJobState: previousJob,
       });
-
-      onUpdateJob(parsed.updatedJob);
-
-      // Cooldown to avoid repeat scans of the exact same code
-      setTimeout(() => {
-        isCooldownRef.current = false;
-      }, 1800);
     },
     [job, onUpdateJob]
   );
@@ -202,7 +195,7 @@ export function QrAssetScannerModal({
     };
   }, [isOpen, activeTab, facingMode, retryCount, startScanLoop, stopCameraTracks]);
 
-  const handleSelectTab = (tab: 'camera' | 'upload' | 'presets') => {
+  const handleSelectTab = (tab: 'camera' | 'upload') => {
     if (tab !== 'camera') {
       stopCameraTracks();
       setIsScanning(false);
@@ -319,19 +312,6 @@ export function QrAssetScannerModal({
             <Upload className="w-4 h-4 text-blue-600" />
             <span>Photo Upload</span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => handleSelectTab('presets')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'presets'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-            }`}
-          >
-            <Zap className="w-4 h-4 text-amber-500" />
-            <span>Test Tag Presets</span>
-          </button>
         </div>
 
         {/* Main Body */}
@@ -389,13 +369,6 @@ export function QrAssetScannerModal({
                         className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white border border-slate-700 cursor-pointer"
                       >
                         Retry Camera
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectTab('presets')}
-                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-bold text-slate-950 cursor-pointer"
-                      >
-                        Use Test Presets
                       </button>
                     </div>
                   </div>
@@ -460,54 +433,6 @@ export function QrAssetScannerModal({
                   <span>{cameraError}</span>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* TAB 3: Instant Test Presets (Zero-friction desktop & field evaluation) */}
-          {activeTab === 'presets' && (
-            <div className="space-y-3">
-              <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-start gap-2.5">
-                <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-bold">Instant Tag Simulator:</span> Click any pre-configured physical asset tag below to simulate a real hardware scan. Equipment counts and room dimensions update dynamically in the active estimate.
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                {QR_SAMPLE_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => handleDecodedString(preset.payload)}
-                    className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50 text-left transition-all shadow-xs group flex flex-col justify-between cursor-pointer"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
-                          {preset.label}
-                        </span>
-                        <span
-                          className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${
-                            preset.category === 'equipment'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {preset.category}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        {preset.description}
-                      </p>
-                    </div>
-
-                    <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-semibold text-emerald-600">
-                      <span>Simulate Scan</span>
-                      <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-                    </div>
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 

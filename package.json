@@ -1,5 +1,5 @@
 {
-  "name": "ai-studio-applet",
+  "name": "dryscope",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "tsx server.ts",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "clean": "next clean",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-dryscope \"tsx --test tests/firestore.rules.test.ts\""
+    "test:rules": "firebase emulators:exec --only firestore --project demo-dryscope \"tsx --test tests/firestore.rules.test.ts\"",
+    "auth:disable-signup": "node scripts/auth-disable-signup.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

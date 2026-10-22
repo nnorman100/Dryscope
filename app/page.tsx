@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { RestorationJob } from '@/lib/types';
-import { INITIAL_JOBS } from '@/lib/mockData';
 import { Navbar } from '@/components/Navbar';
 import { LandingPage } from '@/components/landing/LandingPage';
 import { TechPipelineDashboard } from '@/components/dashboards/TechPipelineDashboard';
@@ -20,15 +19,15 @@ import {
   subscribeToJobs,
   subscribeToClientJobs,
   syncJobToFirestore,
-  seedJobsIfEmpty,
+  jobSaveError,
   testConnection,
 } from '@/lib/firebase';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { canOpenView, homeViewForRole, isStaffRole } from '@/lib/roles';
 import { Loader2 } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY_JOBS = 'dryscope_restoration_jobs_v1';
-// Held the demo role picker's user before real sign-in; cleared on load
+// Earlier builds kept demo jobs and a demo user on the device; both are cleared on load
+const LEGACY_LOCAL_STORAGE_KEY_JOBS = 'dryscope_restoration_jobs_v1';
 const LEGACY_LOCAL_STORAGE_KEY_USER = 'dryscope_current_user_v1';
 
 function readUrlParam(name: string): string | null {
@@ -38,16 +37,6 @@ function readUrlParam(name: string): string | null {
     // Older client portal links used ?role=client instead of ?view=client
     if (name === 'view' && !params.get('view') && params.get('role') === 'client') return 'client';
     return params.get(name);
-  } catch {
-    return null;
-  }
-}
-
-function readSavedJobs(): RestorationJob[] | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY_JOBS) || 'null');
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
   } catch {
     return null;
   }
@@ -73,33 +62,32 @@ function Home() {
   // A view asked for before sign-in (from ?view= or a landing page button),
   // opened once we know the user's role allows it
   const [requestedView, setRequestedView] = useState<string | null>(() => readUrlParam('view'));
-  const [activeJobId, setActiveJobId] = useState<string>(() => readUrlParam('jobId') || INITIAL_JOBS[0].id);
+  const [activeJobId, setActiveJobId] = useState<string>(() => readUrlParam('jobId') || '');
   const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [isDocSuiteOpen, setIsDocSuiteOpen] = useState<boolean>(false);
   const [docSuiteTargetJob, setDocSuiteTargetJob] = useState<RestorationJob | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const uid = account?.id;
   const tenantId = account?.tenantId;
 
-  // Before the first update for this user: staff start from their saved jobs
-  // (or the demo jobs), clients from nothing until their own jobs load
-  const jobs = useMemo(() => {
-    if (jobsState && jobsState.uid === uid) return jobsState.jobs;
-    if (isStaff) return readSavedJobs() || INITIAL_JOBS;
-    return role === 'client' ? [] : INITIAL_JOBS;
-  }, [jobsState, uid, isStaff, role]);
+  // Nothing is shown until this user's jobs arrive from Firestore (the
+  // Firestore SDK's own persistent cache serves them offline)
+  const jobs = useMemo(
+    () => (jobsState && jobsState.uid === uid ? jobsState.jobs : []),
+    [jobsState, uid]
+  );
 
   const setJobs = useCallback(
     (update: RestorationJob[] | ((prev: RestorationJob[]) => RestorationJob[])) => {
       if (!uid) return;
       setJobsState((prev) => {
-        const base =
-          prev && prev.uid === uid ? prev.jobs : isStaff ? readSavedJobs() || INITIAL_JOBS : [];
+        const base = prev && prev.uid === uid ? prev.jobs : [];
         return { uid, jobs: typeof update === 'function' ? update(base) : update };
       });
     },
-    [uid, isStaff]
+    [uid]
   );
 
   let currentView = 'landing';
@@ -110,21 +98,14 @@ function Home() {
     currentView = viewChoice.view;
   }
 
-  // The demo role picker's saved user is meaningless now that sign-in is real
+  // Company jobs are no longer mirrored to localStorage; clear what older
+  // builds left behind, along with the demo role picker's saved user
   useEffect(() => {
     try {
+      localStorage.removeItem(LEGACY_LOCAL_STORAGE_KEY_JOBS);
       localStorage.removeItem(LEGACY_LOCAL_STORAGE_KEY_USER);
     } catch (e) {}
   }, []);
-
-  // Never leave the company's jobs cached on a device nobody is signed in to
-  useEffect(() => {
-    if (status === 'signed_out') {
-      try {
-        localStorage.removeItem(LOCAL_STORAGE_KEY_JOBS);
-      } catch (e) {}
-    }
-  }, [status]);
 
   // Live jobs for whoever is signed in: staff get their own company's jobs,
   // clients only the jobs carrying their verified email, at any company
@@ -141,13 +122,10 @@ function Home() {
         .then(() => {
           if (cancelled) return;
           setIsCloudConnected(true);
-          seedJobsIfEmpty(tenantId, INITIAL_JOBS).catch(console.warn);
           unsubscribe = subscribeToJobs(
             tenantId,
             (cloudJobs) => {
-              if (Array.isArray(cloudJobs) && cloudJobs.length > 0) {
-                setJobs(cloudJobs);
-              }
+              setJobs(cloudJobs);
             },
             (err) => {
               console.warn('Firestore subscription fallback:', err);
@@ -168,16 +146,6 @@ function Home() {
       if (unsubscribe) unsubscribe();
     };
   }, [status, role, tenantId, account?.email, emailVerified, setJobs]);
-
-  // Cache staff jobs locally once they have changed for this user. Clients
-  // never cache jobs on the device.
-  useEffect(() => {
-    if (isStaff && jobsState && jobsState.uid === uid) {
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY_JOBS, JSON.stringify(jobsState.jobs));
-      } catch (e) {}
-    }
-  }, [jobsState, uid, isStaff]);
 
   const changeView = (view: string) => {
     if (!role) {
@@ -200,18 +168,37 @@ function Home() {
 
   const activeJob = jobs.find((j) => j.id === activeJobId) || jobs[0];
 
-  // Jobs loaded from Firestore carry their company; local demo jobs get the
-  // signed-in staff member's company when first saved
+  // Jobs loaded from Firestore carry their company; a job that somehow lacks
+  // one gets the signed-in staff member's company when saved
   const withTenant = (job: RestorationJob): RestorationJob =>
     job.tenantId || !tenantId ? job : { ...job, tenantId };
 
-  const handleUpdateJob = (edited: RestorationJob) => {
-    const updated = withTenant(edited);
-    setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
-    // Immediate reactive write to Firestore cloud
-    syncJobToFirestore(updated).catch((err) => {
-      console.warn('Cloud sync error (queued locally):', err);
+  // A refused save is undone locally and reported, never left looking saved
+  const saveJob = (job: RestorationJob, previous?: RestorationJob) => {
+    setSaveError(null);
+    syncJobToFirestore(job).catch((err) => {
+      console.warn('Could not save job:', err);
+      setSaveError(err instanceof Error ? err.message : 'This change could not be saved.');
+      setJobs((prev) =>
+        previous
+          ? prev.map((j) => (j.id === job.id ? previous : j))
+          : prev.filter((j) => j.id !== job.id)
+      );
     });
+  };
+
+  // Returns false when the change was refused, so callers don't report success
+  const handleUpdateJob = (edited: RestorationJob): boolean => {
+    const updated = withTenant(edited);
+    const refused = jobSaveError(updated);
+    if (refused) {
+      setSaveError(refused);
+      return false;
+    }
+    const previous = jobs.find((j) => j.id === updated.id);
+    setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
+    saveJob(updated, previous);
+    return true;
   };
 
   const handleCreateNewEstimate = (customJob?: Partial<RestorationJob>) => {
@@ -225,43 +212,34 @@ function Home() {
       finishType: customJob?.finishType || 'Finished',
       cabinetryMultiplier: false,
       afterHours: false,
+      // Only what the intake form supplied; nothing is invented for a real job
       client: {
-        name: customJob?.client?.name || 'New Client Loss',
-        email: customJob?.client?.email || 'client@example.com',
-        phone: customJob?.client?.phone || '(555) 234-9988',
-        address: customJob?.client?.address || '100 Main Street',
-        cityStateZip: customJob?.client?.cityStateZip || 'Eugene, OR 97401',
-        insuranceCarrier: customJob?.client?.insuranceCarrier || 'State Farm',
-        policyNumber: customJob?.client?.policyNumber || 'SF-PENDING',
-        claimNumber: customJob?.client?.claimNumber || `CLM-${Math.floor(Math.random() * 90000 + 10000)}`,
-        deductible: customJob?.client?.deductible ?? 1000,
+        name: customJob?.client?.name || 'New client',
+        email: customJob?.client?.email || '',
+        phone: customJob?.client?.phone || '',
+        address: customJob?.client?.address || '',
+        cityStateZip: customJob?.client?.cityStateZip || '',
+        insuranceCarrier: customJob?.client?.insuranceCarrier || '',
+        policyNumber: customJob?.client?.policyNumber || '',
+        claimNumber: customJob?.client?.claimNumber || '',
+        deductible: customJob?.client?.deductible ?? 0,
       },
-      dimensions: [
-        {
-          roomName: 'Main Affected Area',
-          lengthFt: 14,
-          widthFt: 10,
-          heightFt: 8,
-          affectedFloorSqFt: 140,
-          floodCutHeightInches: 24,
-          linearFtBaseboard: 48,
-        },
-      ],
-      actions: ['EXTRACT_WATER', 'DEPLOY_EQUIPMENT', 'REMOVE_BASEBOARD'],
+      dimensions: [],
+      actions: [],
       moistureReadings: [],
       thermalReadings: [],
       psychrometricLogs: [],
       equipment: {
-        airMovers: 4,
-        dehumidifiers: 1,
+        airMovers: 0,
+        dehumidifiers: 0,
         airScrubbers: 0,
         woodFloorSystems: 0,
-        dryingDays: 3,
-        techHoursOnSite: 4,
-        monitoringHoursPerDay: 1,
+        dryingDays: 0,
+        techHoursOnSite: 0,
+        monitoringHoursPerDay: 0,
       },
       photos: [],
-      technicianNotes: customJob?.technicianNotes || 'Emergency field intake initiated.',
+      technicianNotes: customJob?.technicianNotes || '',
       rawTranscript: '',
       signature: {
         isSigned: false,
@@ -276,7 +254,7 @@ function Home() {
     setJobs((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
     changeView('tech');
-    syncJobToFirestore(newJob).catch(console.warn);
+    saveJob(newJob);
   };
 
   const handleRestoreArchivedJob = (archived: RestorationJob) => {
@@ -295,7 +273,7 @@ function Home() {
     setJobs((prev) => [restored, ...prev]);
     setActiveJobId(restored.id);
     changeView('office');
-    syncJobToFirestore(restored).catch(console.warn);
+    saveJob(restored);
   };
 
   const handleOpenDocSuiteForJob = (target?: RestorationJob) => {
@@ -326,6 +304,18 @@ function Home() {
         canOpenView={(view) => (role ? canOpenView(role, view) : view === 'landing')}
         isCloudConnected={isCloudConnected}
       />
+
+      {saveError && (
+        <div
+          role="alert"
+          className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-800 text-xs flex items-center justify-between gap-3"
+        >
+          <span>{saveError}</span>
+          <button type="button" onClick={() => setSaveError(null)} className="font-bold hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Main View Router */}
       <main className="flex-1 flex flex-col">

@@ -81,7 +81,7 @@ export function parseAndApplyQrAssetTag(
           equipmentCategory: eqCategory,
           serialNumber: serial,
           model,
-          notes: data.notes || data.voltage ? `Rated: ${data.voltage || '115V'}` : undefined,
+          notes: data.notes || (data.voltage ? `Rated: ${data.voltage}` : undefined),
         };
 
         const existingScanned = currentJob.scannedAssets || [];
@@ -108,11 +108,11 @@ export function parseAndApplyQrAssetTag(
       // B. Room JSON tag
       if (data.type === 'room' || data.roomName || data.lengthFt) {
         const roomName = data.roomName || data.name || 'Tagged Loss Area';
-        const length = Number(data.lengthFt || data.length || 14);
-        const width = Number(data.widthFt || data.width || 12);
-        const height = Number(data.heightFt || data.height || 8);
+        const length = Number(data.lengthFt || data.length || 0);
+        const width = Number(data.widthFt || data.width || 0);
+        const height = Number(data.heightFt || data.height || 0);
         const affectedFloor = Number(data.affectedFloorSqFt || length * width);
-        const floodCut = Number(data.floodCutHeightInches || 24);
+        const floodCut = Number(data.floodCutHeightInches || 0);
         const baseboard = Number(data.linearFtBaseboard || (length + width) * 2);
 
         const newRoom: RoomDimension = {
@@ -228,10 +228,10 @@ export function parseAndApplyQrAssetTag(
       if (pathname.includes('/rm') || url.searchParams.get('type') === 'room') {
         const rawName = pathname.split('/')[2] || url.searchParams.get('name') || 'Loss Chamber';
         const roomName = decodeURIComponent(rawName);
-        const l = Number(url.searchParams.get('l') || 15);
-        const w = Number(url.searchParams.get('w') || 12);
-        const h = Number(url.searchParams.get('h') || 8);
-        const fc = Number(url.searchParams.get('fc') || 24);
+        const l = Number(url.searchParams.get('l') || 0);
+        const w = Number(url.searchParams.get('w') || 0);
+        const h = Number(url.searchParams.get('h') || 0);
+        const fc = Number(url.searchParams.get('fc') || 0);
         const lb = Number(url.searchParams.get('lb') || (l + w) * 2);
 
         const newRoom: RoomDimension = {
@@ -351,10 +351,10 @@ export function parseAndApplyQrAssetTag(
   ) {
     const cleanName = trimmed.replace(/^room:\s*/i, '').split(/[0-9]/)[0].trim() || 'Scanned Room';
     const dimMatch = trimmed.match(/(\d+)\s*(?:x|by|\*)\s*(\d+)/i);
-    const l = dimMatch ? Number(dimMatch[1]) : 14;
-    const w = dimMatch ? Number(dimMatch[2]) : 12;
-    const h = 8;
-    const fc = 24;
+    const l = dimMatch ? Number(dimMatch[1]) : 0;
+    const w = dimMatch ? Number(dimMatch[2]) : 0;
+    const h = 0;
+    const fc = 0;
     const lb = (l + w) * 2;
 
     const newRoom: RoomDimension = {
@@ -452,105 +452,3 @@ export function playScanSuccessSound(): void {
     // AudioContext blocked by browser policy until gesture or not supported
   }
 }
-
-/**
- * Pre-defined field QR code samples for instant 1-click testing in development
- */
-export interface QrSamplePreset {
-  id: string;
-  label: string;
-  category: 'equipment' | 'room';
-  description: string;
-  payload: string;
-}
-
-export const QR_SAMPLE_PRESETS: QrSamplePreset[] = [
-  {
-    id: 'preset-am-phoenix',
-    label: 'Air Mover AM-402',
-    category: 'equipment',
-    description: 'Phoenix Axial Air Mover (adds 1 Fan)',
-    payload: JSON.stringify({
-      type: 'equipment',
-      category: 'air_mover',
-      serialNumber: 'AM-402-PHX',
-      model: 'Phoenix Focus Axial Fan',
-      voltage: '115V / 2.5A',
-      defaultDays: 3,
-    }),
-  },
-  {
-    id: 'preset-dehu-drieaz',
-    label: 'LGR Dehu DH-948',
-    category: 'equipment',
-    description: 'Dri-Eaz Revolution LGR (adds 1 Dehumidifier)',
-    payload: JSON.stringify({
-      type: 'equipment',
-      category: 'dehumidifier',
-      serialNumber: 'DH-948-DRE',
-      model: 'Dri-Eaz Revolution LGR',
-      voltage: '115V / 6.2A',
-      defaultDays: 3,
-    }),
-  },
-  {
-    id: 'preset-scrubber-def',
-    label: 'HEPA Scrubber AS-118',
-    category: 'equipment',
-    description: 'HEPA 500 Negative Air (adds 1 Scrubber)',
-    payload: JSON.stringify({
-      type: 'equipment',
-      category: 'air_scrubber',
-      serialNumber: 'AS-118-HPA',
-      model: 'DefendAir HEPA 500',
-      voltage: '115V / 3.0A',
-      defaultDays: 3,
-    }),
-  },
-  {
-    id: 'preset-wood-floor',
-    label: 'Injectidry Floor System',
-    category: 'equipment',
-    description: 'Injectidry Hardwood System (adds 1 Unit)',
-    payload: JSON.stringify({
-      type: 'equipment',
-      category: 'wood_floor_system',
-      serialNumber: 'WF-552-INJ',
-      model: 'Injectidry HP60 Vac-It-System',
-      voltage: '115V / 7.0A',
-      defaultDays: 3,
-    }),
-  },
-  {
-    id: 'preset-room-kitchen',
-    label: 'Kitchen Loss Zone',
-    category: 'room',
-    description: '16ft × 12ft (192 SF), 24" flood cut',
-    payload: JSON.stringify({
-      type: 'room',
-      roomName: 'Kitchen Loss Zone',
-      lengthFt: 16,
-      widthFt: 12,
-      heightFt: 8,
-      floodCutHeightInches: 24,
-      linearFtBaseboard: 56,
-      finishType: 'Finished',
-    }),
-  },
-  {
-    id: 'preset-room-master-bath',
-    label: 'Master Bath 12x10',
-    category: 'room',
-    description: '12ft × 10ft (120 SF), 24" flood cut, 44 LF baseboard',
-    payload: JSON.stringify({
-      type: 'room',
-      roomName: 'Master En-Suite Bathroom',
-      lengthFt: 12,
-      widthFt: 10,
-      heightFt: 8,
-      floodCutHeightInches: 24,
-      linearFtBaseboard: 44,
-      finishType: 'Finished',
-    }),
-  },
-];

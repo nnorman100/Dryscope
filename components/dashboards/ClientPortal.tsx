@@ -21,7 +21,7 @@ import {
 
 interface ClientPortalProps {
   job: RestorationJob;
-  onUpdateJob: (updated: RestorationJob) => void;
+  onUpdateJob: (updated: RestorationJob) => boolean;
   onOpenDocSuite: () => void;
 }
 
@@ -36,7 +36,7 @@ export function ClientPortal({
   const [hasDrawn, setHasDrawn] = useState(false);
   const [signerName, setSignerName] = useState(job.client.name);
   const [agreeTerms, setAgreeTerms] = useState(job.signature.termsAccepted);
-  const [isSigned, setIsSigned] = useState(job.signature.isSigned);
+  const isSigned = job.signature.isSigned;
 
   // Canvas drawing handlers
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -100,14 +100,12 @@ export function ClientPortal({
         signatureDataUrl: signatureData,
         signedByName: signerName,
         signedAt: new Date().toISOString(),
-        ipAddress: '198.51.100.' + Math.floor(Math.random() * 80 + 10),
         termsAccepted: true,
       },
       updatedAt: new Date().toISOString(),
     };
 
     onUpdateJob(updatedJob);
-    setIsSigned(true);
   };
 
   return (
@@ -312,10 +310,10 @@ export function ClientPortal({
               </h4>
               <p className="text-xs text-emerald-800 mt-1">
                 Signed by <span className="font-bold">{job.signature.signedByName || signerName}</span> on{' '}
-                {job.signature.signedAt ? new Date(job.signature.signedAt).toLocaleString() : 'Today'}
+                {job.signature.signedAt ? new Date(job.signature.signedAt).toLocaleString() : 'Not recorded'}
               </p>
               <div className="text-[11px] text-emerald-700 font-mono mt-1">
-                Audit Record ID: DS-SIG-{job.jobId} • Verified IP: {job.signature.ipAddress || '198.51.100.24'}
+                Audit Record ID: DS-SIG-{job.jobId} • IP: {job.signature.ipAddress || 'Not recorded'}
               </div>
             </div>
 
@@ -347,7 +345,7 @@ export function ClientPortal({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Signing Date & Verification
+                  Signing Date
                 </label>
                 <div
                   suppressHydrationWarning
@@ -355,7 +353,7 @@ export function ClientPortal({
                 >
                   {job.signature.signedAt
                     ? new Date(job.signature.signedAt).toISOString().split('T')[0]
-                    : '2026-10-20'} • On-Site Device
+                    : new Date().toISOString().split('T')[0]}
                 </div>
               </div>
             </div>

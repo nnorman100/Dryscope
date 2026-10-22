@@ -79,7 +79,7 @@ export function calculatePricingBreakdown(job: RestorationJob): PricingBreakdown
   const totalBaseline = emergencyTrip + monitoringBaseline + haulLoad + hepaFilter; // 1180.20
 
   // Equipment calculation
-  const days = Math.max(1, job.equipment.dryingDays || 3);
+  const days = job.equipment.dryingDays ?? 0;
   const airMoversTotal = job.equipment.airMovers * RATES.AIR_MOVER_PER_DAY * days;
   const dehumidifiersTotal =
     job.equipment.dehumidifiers * RATES.DEHUMIDIFIER_PER_DAY * days;
@@ -95,8 +95,8 @@ export function calculatePricingBreakdown(job: RestorationJob): PricingBreakdown
     woodFloorSystemsTotal;
 
   // Cell D29 Labor Hours formula: (# of Techs * Hours on Site) + (Monitoring Hours * Days)
-  const techHours = job.equipment.techHoursOnSite || 4;
-  const monitoringDailyHours = job.equipment.monitoringHoursPerDay || 1;
+  const techHours = job.equipment.techHoursOnSite ?? 0;
+  const monitoringDailyHours = job.equipment.monitoringHoursPerDay ?? 0;
   const totalLaborHours = techHours + monitoringDailyHours * days;
   const totalLabor = totalLaborHours * RATES.LABOR_RATE_PER_HOUR;
 

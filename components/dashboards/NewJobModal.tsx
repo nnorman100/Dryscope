@@ -21,7 +21,7 @@ import {
 import { RestorationJob, WaterLossCategory, FinishType, LossPerilType } from '@/lib/types';
 import { AddressAutocompleteInput } from '@/components/maps/AddressAutocompleteInput';
 import { JobLocationMap } from '@/components/maps/JobLocationMap';
-import { ParsedPlaceDetails, getDirectionsUrl } from '@/lib/maps-config';
+import { ParsedPlaceDetails, getDirectionsUrl, GOOGLE_MAPS_ENABLED } from '@/lib/maps-config';
 
 interface NewJobModalProps {
   isOpen: boolean;
@@ -36,7 +36,7 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [cityStateZip, setCityStateZip] = useState('');
-  const [insuranceCarrier, setInsuranceCarrier] = useState('State Farm');
+  const [insuranceCarrier, setInsuranceCarrier] = useState('');
   const [policyNumber, setPolicyNumber] = useState('');
   const [category, setCategory] = useState<WaterLossCategory>('Cat 1 (Clean)');
   const [finishType, setFinishType] = useState<FinishType>('Finished');
@@ -68,27 +68,27 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
       moldCondition: lossType === 'mold' ? 'Condition 3 (Active Microbial Growth)' : undefined,
       containmentRequired: lossType === 'mold',
       finishType,
+      // Blank fields stay blank: no placeholder client, carrier or claim is invented
       client: {
-        name: clientName.trim() || 'New Client Property',
-        email: email.trim() || 'client@example.com',
-        phone: phone.trim() || '(555) 234-9988',
-        address: address.trim() || '100 Main Street',
-        cityStateZip: cityStateZip.trim() || 'Eugene, OR 97401',
-        insuranceCarrier: insuranceCarrier || 'State Farm',
-        policyNumber: policyNumber.trim() || 'SF-PENDING',
-        claimNumber: `CLM-${Math.floor(Math.random() * 90000 + 10000)}`,
-        deductible: 1000,
+        name: clientName.trim() || 'New client',
+        email: email.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        cityStateZip: cityStateZip.trim(),
+        insuranceCarrier: insuranceCarrier.trim(),
+        policyNumber: policyNumber.trim(),
+        claimNumber: '',
+        deductible: 0,
       },
       gpsCoordinates: coords
         ? {
             latitude: coords.lat,
             longitude: coords.lng,
             address: address || placeDetails?.formattedAddress || '',
-            accuracy: 5,
             mapUrl: getDirectionsUrl(coords.lat, coords.lng, address),
           }
         : undefined,
-      technicianNotes: `Field scoping intake created via Google Maps address lookup.`,
+      technicianNotes: '',
     };
 
     onCreateJob(partialJob);
@@ -108,7 +108,7 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <span>New Restoration Field Estimate</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Google Maps Connected
+                  {GOOGLE_MAPS_ENABLED ? 'Google Maps Enabled' : 'Google Maps Unavailable'}
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
@@ -259,6 +259,7 @@ export function NewJobModal({ isOpen, onClose, onCreateJob }: NewJobModalProps) 
                   onChange={(e) => setInsuranceCarrier(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
                 >
+                  <option value="">Not provided</option>
                   <option value="State Farm">State Farm</option>
                   <option value="Allstate">Allstate</option>
                   <option value="Farmers">Farmers</option>
